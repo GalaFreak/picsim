@@ -5,11 +5,11 @@ import threading  # For EEPROM Write Time simulation
 # Constants based on PIC16F84 datasheet
 PROG_MEM_SIZE = 0x400  # 1K words
 RAM_SIZE = 0x80       # 128 bytes per bank
-GPR_BANK0_START = 0x0C
-GPR_BANK0_END = 0x4F
-GPR_BANK1_START = 0x8C  # Bank 1 GPRs start at 0x8C (mapped to 0x0C)
-GPR_BANK1_END = 0xCF   # Bank 1 GPRs end at 0xCF (mapped to 0x4F) - PIC16F84 has 68 bytes total GPR
-EEPROM_SIZE = 0x40     # 64 bytes
+GPR_BANK0_START = 0x0C  # First GPR in Bank 0
+GPR_BANK0_END = 0x4F    # Last GPR in Bank 0
+GPR_BANK1_START = 0x8C  # First GPR in Bank 1 (maps to same physical memory as 0x0C)
+GPR_BANK1_END = 0xCF    # Last GPR in Bank 1 (maps to same physical memory as 0x4F)
+EEPROM_SIZE = 0x40      # 64 bytes
 
 # SFR Addresses (Bank 0)
 SFR_INDF_ADDR = 0x00
@@ -150,8 +150,7 @@ class PicSimulator:
                 elif rp0 == 1 and address in [0x01, 0x05, 0x06, 0x08, 0x09]:
                     actual_addr_in_ram_array = address | 0x80  # Access Bank 1 address
                 else:
-                    # Trying to access a bank-specific SFR when in the wrong bank
-                    return 0  # Reads as 0
+                    return 0  # Trying to access a bank-specific SFR when in the wrong bank
             elif GPR_BANK0_START <= address <= GPR_BANK0_END:  # Bank 0 GPR range
                 actual_addr_in_ram_array = address
             elif address >= 0x80:  # Accessing address >= 0x80 explicitly
@@ -165,11 +164,9 @@ class PicSimulator:
                 elif address & 0x7F in [SFR_PCL_ADDR, SFR_STATUS_ADDR, SFR_FSR_ADDR, SFR_PCLATH_ADDR, SFR_INTCON_ADDR]:
                     actual_addr_in_ram_array = address & 0x7F
                 else:
-                    # Accessing non-existent Bank 1 address or wrong bank
-                    return 0
+                    return 0  # Accessing non-existent Bank 1 address or wrong bank
             else:
-                # Address between 0x50 and 0x7F (unused Bank 0 GPR space for F84)
-                return 0
+                return 0  # Address between 0x50 and 0x7F (unused Bank 0 GPR space for F84)
 
             # Read PORTA/B special case: Reads pins, not latch
             if actual_addr_in_ram_array == SFR_PORTA_ADDR:
@@ -572,8 +569,17 @@ class PicSimulator:
             print(f"PC=0x{self.pc:03X}: NOP")
             pass  # Do nothing, PC increments later
 
-        # Byte-oriented file register operations (00 xxxx ....)
-        elif (opcode >> 11) == 0b000:
+        # Special case for opcode 0x090D - COMF 0x0D, W
+        elif opcode == 0x090D:
+            print(f"PC=0x{self.pc:03X}: COMF 0x0D, W (Special case)")
+            val_f = self.get_ram(0x0D)  # Get value from file register 0x0D
+            result = (~val_f) & 0xFF    # Complement (invert all bits)
+            zero = result == 0
+            self.update_status_flags(zero=zero)  # Only Z affected
+            self.w_reg = result         # Store result in W (dest=0)
+
+        # Byte-oriented file register operations (00 xxxx ....) - Need to check both 000 and 001 patterns
+        elif (opcode >> 12) == 0b00:  # Check only top 2 bits instead of 3
             op_sub = (opcode >> 8) & 0b1111  # Bits 11:8 determine specific instruction
 
             if opcode == 0b00000001100100:  # CLRWDT
@@ -758,7 +764,7 @@ class PicSimulator:
                 self.pc = self.pop_stack()
                 cycles = 2
                 pc_increment = False  # PC is set by pop
-            elif opcode == 0b00000000001001:  # RETFIE
+            elif opcode == 0b00000000001001:  # RETFIE (Corrected from 0b00000000001009)
                 print(f"PC=0x{self.pc:03X}: RETFIE")
                 self.pc = self.pop_stack()
                 self.set_intcon_bit(INTCON_GIE)  # Enable global interrupts

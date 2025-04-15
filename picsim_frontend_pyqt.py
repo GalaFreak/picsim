@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QGridLayout, QSplitter, QFrame, QGroupBox,
     QFileDialog, QMessageBox, QPlainTextEdit, QListWidget, QListWidgetItem,
     QScrollArea, QTableWidget, QTableWidgetItem, QHeaderView, QTabWidget,
-    QStyleFactory, QTextEdit
+    QStyleFactory, QTextEdit, QSlider
 )
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot, QRect, QSize
 from PyQt5.QtGui import QFont, QColor, QTextCharFormat, QTextCursor, QPalette, QIcon, QPainter
@@ -85,7 +85,8 @@ class CodeEditorWithBreakpoints(QPlainTextEdit):
             max_num //= 10
             digits += 1
         
-        space = 12 + self.fontMetrics().horizontalAdvance('9') * digits
+        # Width = space for breakpoint indicator + spacing + space for digits + right margin
+        space = 16 + self.fontMetrics().horizontalAdvance('9') * digits + 7
         return space
     
     def updateLineNumberAreaWidth(self, _):
@@ -124,15 +125,20 @@ class CodeEditorWithBreakpoints(QPlainTextEdit):
                 number = str(block_number + 1)
                 line_number = block_number + 1  # 1-based line numbers
                 
-                # Draw breakpoint indicator
+                # Draw breakpoint indicator to the left of line numbers
                 if line_number in self.breakpoints:
+                    indicator_size = 10
+                    y_center = int(top) + self.fontMetrics().height() // 2
                     painter.setBrush(QColor(Qt.red))
                     painter.setPen(Qt.NoPen)
-                    painter.drawEllipse(4, int(top) + 4, 10, 10)
+                    painter.drawEllipse(4, y_center - indicator_size // 2, indicator_size, indicator_size)
                 
-                # Draw line number
+                # Draw line number with some spacing after breakpoint area
                 painter.setPen(QColor(Qt.lightGray))
-                painter.drawText(0, int(top), self.lineNumberArea.width() - 5, 
+                text_x = 16  # Position after breakpoint area
+                text_y = int(top)
+                text_width = self.lineNumberArea.width() - text_x - 5  # Leave 5px right margin
+                painter.drawText(text_x, text_y, text_width, 
                                 self.fontMetrics().height(),
                                 Qt.AlignRight, number)
             
@@ -222,7 +228,7 @@ class PicSimulatorGUI(QMainWindow):
         self.ui_timer.timeout.connect(self.execute_cycle)
         
         self.setWindowTitle("PIC16F84 Simulator")
-        self.setMinimumSize(1200, 800)
+        self.setMinimumSize(1800, 900)
         
         # Create the central widget and main layout
         self.central_widget = QWidget(self)
@@ -381,7 +387,22 @@ class PicSimulatorGUI(QMainWindow):
         self.freq_edit.returnPressed.connect(self.update_frequency)
         freq_layout.addWidget(self.freq_edit)
         
-        freq_layout.addStretch(1)
+        # Add slider for frequency control
+        self.freq_slider = QSlider(Qt.Horizontal)
+        self.freq_slider.setMinimum(1)
+        self.freq_slider.setMaximum(20)
+        self.freq_slider.setValue(int(float(self.simulator.frequency_mhz)))
+        self.freq_slider.setTickPosition(QSlider.TicksBelow)
+        self.freq_slider.setTickInterval(1)
+        # Make the slider expand to fill available space
+        slider_policy = self.freq_slider.sizePolicy()
+        slider_policy.setHorizontalStretch(1)
+        self.freq_slider.setSizePolicy(slider_policy)
+        self.freq_slider.setMinimumWidth(300)
+        freq_layout.addWidget(self.freq_slider)
+        
+        # Remove stretch factor to allow slider to expand
+        # freq_layout.addStretch(1)
         
         control_layout.addWidget(freq_widget, 1, 0, 1, 5)
         
