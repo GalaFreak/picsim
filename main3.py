@@ -1,25 +1,107 @@
 import math
 
+program = []
+
 w = 0
 f = ''
 
 carryflag = 0
 zeroflag = 0
 
-values = []
-indexes = {
+valuesBank0 = {}
+valuesBank1 = {}
+for i in range(0, 16 * 4):
+    valuesBank0[i] = 0
+    valuesBank1[i] = 0
 
+filemap = { 
+    'TMR0': 1,
+    'OPTION': 1,
+    'PCL': 2,
+    'STATUS': 3,
+    'FSR': 4,
+    'PORTA': 5,
+    'PORTB': 6,
+    'TRISA': 5,
+    'TRISB': 6,
+    'EEDATA': 8,
+    'EECON1': 8,
+    'EEADR': 9,
+    'EECON2': 9,
+    'PCLATH': 10,
+    'INTCON': 11,
 }
+
+functions = {}
+
+bank = False
+startadresse = 0
 curIndex = 0
 
 def programmAuswerten(dateipfad, breakpoints):
-    a = 5
+    global program
+    with open(dateipfad, 'r') as file:
+        program = file.readlines()
+    
+    curIndex2 = 0
+    
+    for line in program:
+        finn = line.split(" ")
+        if len(finn) == 1:
+            functions.add(finn[0], curIndex2)
+        curIndex2 += 1
+    
+
+def convertHex(hexString):
+    if hexString.contains("h"):
+        hexString = hexString.split("h")[0]
+        return int(hexString, 16)
+    else:
+        return int(hexString)
+
+def convertBin(binString):
+    if binString.contains("b"):
+        binString = binString.split("b")[0]
+        return int(binString, 2)
+    else:
+        return int(binString)
+    
+def checkIndex(index):
+    if index == "w" or index == "W":
+        return -3
+    if index.isnumeric():
+        return index
+    elif index.replace("h", "").isnumeric():
+        return convertHex(index)
+    elif index.replace("b", "").isnumeric():
+        return convertBin(index)
+    else:
+        if filemap.__contains__(index.upper()):
+            return filemap[index.upper()]
+        else:
+            return -1
 
 def commandExecute(command):
+    global w, f, carryflag, zeroflag, valuesBank0, valuesBank1, bank, startadresse, curIndex
     jonas = command.split(" ")
+    if jonas[0] == ';':
+        return
+    
+    if jonas.contains("ORG"):
+        startadresse = jonas[1]
+        
+    if jonas.contains("EQU") and not filemap.__contains__(jonas[0].upper()):
+        filemap.add(jonas[0].upper(), convertHex(jonas[2]))
+    
+
     match jonas[0]:
+        case 'GOTO':
+            label = jonas[1]
+            curIndex = functions[label]
+            
         case 'MOVF':
-            f = jonas[1].split(",")[0]
+            f = checkIndex(jonas[1].split(",")[0])
+            # Hier weiter machen
             d = jonas[1].split(",")[1]
             if d == '0':
                 w = f
@@ -142,4 +224,4 @@ def commandExecute(command):
                 w = values[indexes[f]] | w
             else:
                 values[indexes[f]] |= w
-        
+
