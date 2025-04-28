@@ -80,7 +80,7 @@ class PicSimulator:
         self.stack_ptr = 0
         self.runtime_cycles = 0
         self.laufzeit_us = 0.0
-        self.frequency_mhz = 4.0  # Default frequency
+        self.frequency_mhz = 4.0  # Default frequency (4 MHz)
         self.eecon2_write_step = 0
         self.prescaler_counter = 0
         self.tmr0_sync_stage1 = 0
@@ -383,16 +383,73 @@ class PicSimulator:
 
     # --- Register Write Handlers (for side effects) ---
     def handle_porta_write(self):
-        pass  # To be overridden or extended in GUI class
+        """Handles writing to PORTA - updates the latch and affects physical pins when configured as outputs."""
+        porta_latch = self.ram[SFR_PORTA_ADDR] & 0x1F  # Only 5 bits available on PORTA
+        rp0 = self.get_status_bit(STATUS_RP0)
+        trisa = self.ram[SFR_TRISA_ADDR] if rp0 == 1 else 0xFF  # Default to inputs if bank not accessible
+        
+        # For each pin configured as output, update the physical pin state to match latch
+        for i in range(5):  # PORTA is only 5 bits (RA0-RA4)
+            if ((trisa >> i) & 1) == 0:  # If pin is output
+                # For outputs, physical pin follows latch value
+                if (porta_latch >> i) & 1:
+                    self.porta_pins |= (1 << i)  # Set pin high
+                else:
+                    self.porta_pins &= ~(1 << i)  # Set pin low
+        
+        # When RA4 is output, special handling (open drain)
+        if ((trisa >> 4) & 1) == 0:  # If RA4 is output
+            if (porta_latch >> 4) & 1:  # High means "floating" for open drain
+                # No change to pin state - external pullup would determine level
+                pass
+            else:
+                # Actively driven low
+                self.porta_pins &= ~(1 << 4)
 
     def handle_portb_write(self):
-        self.portb_latch_on_read = self.ram[SFR_PORTB_ADDR]
+        """Handles writing to PORTB - updates the latch and affects physical pins when configured as outputs."""
+        portb_latch = self.ram[SFR_PORTB_ADDR]
+        rp0 = self.get_status_bit(STATUS_RP0)
+        trisb = self.ram[SFR_TRISB_ADDR] if rp0 == 1 else 0xFF  # Default to inputs if bank not accessible
+        
+        # Update the latch value used for RB port change detection
+        self.portb_latch_on_read = portb_latch
+        
+        # For each pin configured as output, update the physical pin state to match latch
+        for i in range(8):
+            if ((trisb >> i) & 1) == 0:  # If pin is output
+                # For outputs, physical pin follows latch value
+                if (portb_latch >> i) & 1:
+                    self.portb_pins |= (1 << i)  # Set pin high
+                else:
+                    self.portb_pins &= ~(1 << i)  # Set pin low
 
+    # --- Add these methods to ensure TRIS changes update pin states ---
     def handle_trisa_write(self):
-        pass  # To be overridden or extended in GUI class
+        """Handles writing to TRISA - changes pin direction and immediately affects pin state for output pins."""
+        trisa = self.ram[SFR_TRISA_ADDR] & 0x1F  # Only 5 bits implemented
+        porta_latch = self.ram[SFR_PORTA_ADDR] & 0x1F
+        for i in range(5):
+            if ((trisa >> i) & 1) == 0:  # If pin is output
+                if (porta_latch >> i) & 1:
+                    self.porta_pins |= (1 << i)
+                else:
+                    self.porta_pins &= ~(1 << i)
+        # Special handling for RA4 (open drain)
+        if ((trisa >> 4) & 1) == 0 and ((porta_latch >> 4) & 1) == 0:
+            self.porta_pins &= ~(1 << 4)  # Can only drive low
 
     def handle_trisb_write(self):
-        pass  # To be overridden or extended in GUI class
+        """Handles writing to TRISB - changes pin direction and immediately affects pin state for output pins."""
+        trisb = self.ram[SFR_TRISB_ADDR]
+        portb_latch = self.ram[SFR_PORTB_ADDR]
+        for i in range(8):
+            if ((trisb >> i) & 1) == 0:  # If pin is output
+                if (portb_latch >> i) & 1:
+                    self.portb_pins |= (1 << i)
+                else:
+                    self.portb_pins &= ~(1 << i)
+        self.check_rb_port_change()
 
     def handle_option_write(self):
         self.prescaler_counter = 0  # Simplification: Clear prescaler on OPTION write
@@ -783,10 +840,9 @@ class PicSimulator:
                 self.set_ram(SFR_OPTION_REG_ADDR, self.w_reg)
             # If none of the above matched within 00xxxx group, it's likely an error or unhandled NOP variant
             else:
-                print(f"PC=0x{self.pc:03X}: Unhandled Opcode in 00xxxx range: {opcode:04X}")
-                # Treat as NOP?
-                pass
-
+                error_msg = f"Unknown or unsupported opcode: 0x{opcode:04X} at PC=0x{self.pc:03X}"
+                print(f"ERROR: {error_msg}")
+                raise ValueError(error_msg)
 
         # Bit-oriented file register operations (01 xxxx ....)
         elif (opcode >> 10) == 0b0100:  # BCF f,b (01 00bb bfff ffff)
@@ -899,8 +955,9 @@ class PicSimulator:
 
         # Fallback for completely unknown opcodes
         else:
-            print(f"PC=0x{self.pc:03X}: Unknown opcode: {opcode:04X}")
-            raise ValueError(f"Unknown opcode 0x{opcode:04X}")
+            error_msg = f"Unknown or unsupported opcode: 0x{opcode:04X} at PC=0x{self.pc:03X}"
+            print(f"ERROR: {error_msg}")
+            raise ValueError(error_msg)
 
         # Increment PC for next instruction (if not already handled by branch/skip/call/return)
         if pc_increment:
@@ -921,7 +978,7 @@ class PicSimulator:
         self.stack = [0] * 8
         self.stack_ptr = 0
         self.runtime_cycles = 0
-        self.laufzeit_us = 0.0
+        self.laufzeit_us = 0.0  # Reset runtime counter
         self.eecon2_write_step = 0
         self.prescaler_counter = 0
         self.tmr0_inhibit_cycles = 0
@@ -961,3 +1018,54 @@ class PicSimulator:
             self.ram[SFR_EECON1_ADDR] &= ~((1 << EECON1_WREN) | (1 << EECON1_WR) | (1 << EECON1_RD))
 
         self.running = False
+
+    def toggle_porta_pin(self, pin_index):
+        """Toggles the simulated input level of a PORTA pin. Returns True if successful."""
+        if self.get_tris_a_bit(pin_index):  # Only toggle if pin is configured as input
+            self.porta_pins ^= (1 << pin_index)
+            pin_level = (self.porta_pins >> pin_index) & 1
+            print(f"Toggled RA{pin_index} input stimulus to {pin_level}")
+            return True
+        return False
+
+    def toggle_portb_pin(self, pin_index):
+        """Toggles the simulated input level of a PORTB pin. Returns True if successful."""
+        if self.get_tris_b_bit(pin_index):  # Only toggle if pin is configured as input
+            prev_level = (self.portb_pins >> pin_index) & 1
+            self.portb_pins ^= (1 << pin_index)
+            current_level = (self.portb_pins >> pin_index) & 1
+            print(f"Toggled RB{pin_index} input stimulus to {current_level}")
+            
+            # Check for RB0/INT edge if applicable
+            if pin_index == 0:
+                option = self.ram[SFR_OPTION_REG_ADDR] if self.get_status_bit(STATUS_RP0) == 1 else 0xFF
+                intedg = (option >> OPTION_INTEDG) & 1
+                is_rising_edge = prev_level == 0 and current_level == 1
+                is_falling_edge = prev_level == 1 and current_level == 0
+                
+                if (intedg == 1 and is_rising_edge) or (intedg == 0 and is_falling_edge):
+                    if not self.get_intcon_bit(INTCON_INTF):
+                        self.set_intcon_bit(INTCON_INTF)
+                        print("INT/RB0 edge detected, INTF set.")
+            
+            # Check for port change if RB<7:4>
+            if pin_index >= 4:
+                self.check_rb_port_change()
+            
+            return True
+        return False
+
+    def check_rb_port_change(self):
+        """Checks if RB<7:4> pins have changed and sets RBIF if so."""
+        # Only check if RBIE is enabled 
+        if not self.get_intcon_bit(INTCON_RBIE):
+            return
+        
+        # Get current values for RB7:4
+        current_rb_high = (self.portb_pins >> 4) & 0x0F
+        latch_rb_high = (self.portb_latch_on_read >> 4) & 0x0F
+        
+        # If any bit is different from last read
+        if current_rb_high != latch_rb_high:
+            self.set_intcon_bit(INTCON_RBIF)
+            print(f"RB Port Change detected. RBIF set. Current:{current_rb_high:04b} vs Latch:{latch_rb_high:04b}")

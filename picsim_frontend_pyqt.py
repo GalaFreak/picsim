@@ -250,8 +250,14 @@ class PicSimulatorGUI(QMainWindow):
         # Add panels to the main splitter
         self.main_splitter.addWidget(self.left_panel)
         self.main_splitter.addWidget(self.right_panel)
-        self.main_splitter.setStretchFactor(0, 1)
-        self.main_splitter.setStretchFactor(1, 2)
+        
+        # Adjust stretch factors to make left panel wider
+        self.main_splitter.setStretchFactor(0, 3)  # Increased from 1 to 3
+        self.main_splitter.setStretchFactor(1, 2)  # Decreased from 2 to 2
+        
+        # Set initial sizes to ensure the left panel is wide enough
+        # This gives approximately 60% of width to left panel, 40% to right
+        self.main_splitter.setSizes([450, 550])
         
         # Initialize UI Components
         self.setup_control_panel()
@@ -389,16 +395,17 @@ class PicSimulatorGUI(QMainWindow):
         
         # Add slider for frequency control
         self.freq_slider = QSlider(Qt.Horizontal)
-        self.freq_slider.setMinimum(1)
-        self.freq_slider.setMaximum(20)
-        self.freq_slider.setValue(int(float(self.simulator.frequency_mhz)))
+        self.freq_slider.setMinimum(1)  # Will be set to 0.1 using a scale factor
+        self.freq_slider.setMaximum(160)  # Will represent 16.0 MHz (scaled by 10)
+        self.freq_slider.setValue(int(float(self.simulator.frequency_mhz) * 10))  # Scale by 10
         self.freq_slider.setTickPosition(QSlider.TicksBelow)
-        self.freq_slider.setTickInterval(1)
+        self.freq_slider.setTickInterval(10)  # Every 1 MHz
         # Make the slider expand to fill available space
         slider_policy = self.freq_slider.sizePolicy()
         slider_policy.setHorizontalStretch(1)
         self.freq_slider.setSizePolicy(slider_policy)
         self.freq_slider.setMinimumWidth(300)
+        self.freq_slider.valueChanged.connect(self.update_frequency_from_slider)
         freq_layout.addWidget(self.freq_slider)
         
         # Remove stretch factor to allow slider to expand
@@ -544,79 +551,206 @@ class PicSimulatorGUI(QMainWindow):
         self.stack_io_layout = stack_io_layout
     
     def setup_io_panel(self):
-        """Set up the I/O ports panel."""
+        """Set up the I/O ports panel with table view."""
         io_group = QGroupBox("I/O Ports")
         io_layout = QVBoxLayout(io_group)
         
-        # PORTA
-        porta_group = QGroupBox("PORTA / TRISA")
-        porta_layout = QHBoxLayout(porta_group)
+        # Create Port A Table
+        porta_group = QGroupBox("Port A")
+        porta_layout = QVBoxLayout(porta_group)
+        self.porta_table = QTableWidget(3, 9)  # 3 rows (Ra, TRIS, PIN), 9 cols (label + 8 pins)
+        self.porta_table.setHorizontalHeaderLabels(["", "4", "3", "2", "1", "0", "", "", ""])
+        self.porta_table.setVerticalHeaderLabels(["RA", "TRIS", "PIN"])
+        self.porta_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.porta_table.verticalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.porta_table.setFixedHeight(120)
         
-        self.porta_pin_buttons = {}
-        self.trisa_pin_labels = {}
+        # Initialize PortA cells
+        for col in range(9):
+            # First column contains labels
+            if col == 0:
+                self.porta_table.setItem(0, col, QTableWidgetItem(""))
+                self.porta_table.setItem(1, col, QTableWidgetItem(""))
+                self.porta_table.setItem(2, col, QTableWidgetItem(""))
+                continue
+                
+            # Disable unused pins (RA5-RA7 don't exist on PIC16F84)
+            if col > 5:
+                item1 = QTableWidgetItem("-")
+                item2 = QTableWidgetItem("-")
+                item3 = QTableWidgetItem("-")
+                item1.setFlags(Qt.ItemIsEnabled)
+                item2.setFlags(Qt.ItemIsEnabled)
+                item3.setFlags(Qt.ItemIsEnabled)
+                self.porta_table.setItem(0, col, item1)
+                self.porta_table.setItem(1, col, item2)
+                self.porta_table.setItem(2, col, item3)
+            else:
+                pin_idx = 9 - col - 1  # Convert from column to pin number (RA4-RA0)
+                # Set up items for TRIS and PIN with default values
+                ra_item = QTableWidgetItem(f"RA{pin_idx}")
+                tris_item = QTableWidgetItem("i")
+                pin_item = QTableWidgetItem("0")
+                
+                ra_item.setTextAlignment(Qt.AlignCenter)
+                tris_item.setTextAlignment(Qt.AlignCenter)
+                pin_item.setTextAlignment(Qt.AlignCenter)
+                
+                # Make items read-only
+                ra_item.setFlags(Qt.ItemIsEnabled)
+                tris_item.setFlags(Qt.ItemIsEnabled)
+                
+                # Configure PIN cells to be clickable
+                pin_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+                
+                # Add to table
+                self.porta_table.setItem(0, col, ra_item)
+                self.porta_table.setItem(1, col, tris_item)
+                self.porta_table.setItem(2, col, pin_item)
         
-        for i in range(5):  # RA0-RA4
-            pin_widget = QWidget()
-            pin_layout = QVBoxLayout(pin_widget)
-            pin_layout.setContentsMargins(1, 1, 1, 1)
-            pin_layout.setSpacing(2)
-            
-            # TRIS label
-            tris_label = QLabel("I")
-            tris_label.setAlignment(Qt.AlignCenter)
-            tris_label.setFixedWidth(30)
-            pin_layout.addWidget(tris_label)
-            self.trisa_pin_labels[i] = tris_label
-            
-            # Pin button
-            pin_name = f"RA{i}"
-            pin_button = QPushButton(pin_name)
-            pin_button.setFixedWidth(30)
-            pin_button.clicked.connect(lambda checked, p=i: self.toggle_porta_pin(p))
-            pin_layout.addWidget(pin_button)
-            self.porta_pin_buttons[i] = pin_button
-            
-            porta_layout.addWidget(pin_widget)
+        # Connect clicked signal for PIN row cells
+        self.porta_table.cellClicked.connect(self.porta_pin_clicked)
         
-        porta_layout.addStretch(1)
+        porta_layout.addWidget(self.porta_table)
         io_layout.addWidget(porta_group)
         
-        # PORTB
-        portb_group = QGroupBox("PORTB / TRISB")
-        portb_layout = QHBoxLayout(portb_group)
+        # Create Port B Table
+        portb_group = QGroupBox("Port B")
+        portb_layout = QVBoxLayout(portb_group)
+        self.portb_table = QTableWidget(3, 9)  # 3 rows (Rb, TRIS, PIN), 9 cols (label + 8 pins)
+        self.portb_table.setHorizontalHeaderLabels(["", "7", "6", "5", "4", "3", "2", "1", "0"])
+        self.portb_table.setVerticalHeaderLabels(["RB", "TRIS", "PIN"])
+        self.portb_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.portb_table.verticalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.portb_table.setFixedHeight(120)
         
-        self.portb_pin_buttons = {}
-        self.trisb_pin_labels = {}
+        # Initialize PortB cells
+        for col in range(9):
+            # First column contains labels
+            if col == 0:
+                self.portb_table.setItem(0, col, QTableWidgetItem(""))
+                self.portb_table.setItem(1, col, QTableWidgetItem(""))
+                self.portb_table.setItem(2, col, QTableWidgetItem(""))
+                continue
+                
+            pin_idx = 8 - col  # Convert from column to pin number (RB7-RB0)
+            # Set up items for TRIS and PIN with default values
+            rb_item = QTableWidgetItem(f"RB{pin_idx}")
+            tris_item = QTableWidgetItem("i")
+            pin_item = QTableWidgetItem("0")
+            
+            rb_item.setTextAlignment(Qt.AlignCenter)
+            tris_item.setTextAlignment(Qt.AlignCenter)
+            pin_item.setTextAlignment(Qt.AlignCenter)
+            
+            # Make items read-only
+            rb_item.setFlags(Qt.ItemIsEnabled)
+            tris_item.setFlags(Qt.ItemIsEnabled)
+            
+            # Configure PIN cells to be clickable
+            pin_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+            
+            # Add to table
+            self.portb_table.setItem(0, col, rb_item)
+            self.portb_table.setItem(1, col, tris_item)
+            self.portb_table.setItem(2, col, pin_item)
         
-        for i in range(8):  # RB0-RB7
-            pin_widget = QWidget()
-            pin_layout = QVBoxLayout(pin_widget)
-            pin_layout.setContentsMargins(1, 1, 1, 1)
-            pin_layout.setSpacing(2)
-            
-            # TRIS label
-            tris_label = QLabel("I")
-            tris_label.setAlignment(Qt.AlignCenter)
-            tris_label.setFixedWidth(30)
-            pin_layout.addWidget(tris_label)
-            self.trisb_pin_labels[i] = tris_label
-            
-            # Pin button
-            pin_name = f"RB{i}"
-            pin_button = QPushButton(pin_name)
-            pin_button.setFixedWidth(30)
-            pin_button.clicked.connect(lambda checked, p=i: self.toggle_portb_pin(p))
-            pin_layout.addWidget(pin_button)
-            self.portb_pin_buttons[i] = pin_button
-            
-            portb_layout.addWidget(pin_widget)
+        # Connect clicked signal for PIN row cells
+        self.portb_table.cellClicked.connect(self.portb_pin_clicked)
         
-        portb_layout.addStretch(1)
+        portb_layout.addWidget(self.portb_table)
         io_layout.addWidget(portb_group)
         
         # Add IO group to the stack_io_layout
         self.stack_io_layout.addWidget(io_group, 2)
     
+    def porta_pin_clicked(self, row, col):
+        """Handle clicks on Port A pins."""
+        if row == 2 and col > 0 and col <= 5:  # PIN row (index 2) and valid pin columns
+            pin_idx = 5 - col  # Convert table column to pin number (RA4-RA0)
+            if self.simulator.toggle_porta_pin(pin_idx):
+                print(f"Toggled RA{pin_idx} input state")
+                self.update_io_pins()
+    
+    def portb_pin_clicked(self, row, col):
+        """Handle clicks on Port B pins."""
+        if row == 2 and col > 0:  # PIN row (index 2) and valid pin columns
+            pin_idx = 8 - col  # Convert table column to pin number (RB7-RB0)
+            if self.simulator.toggle_portb_pin(pin_idx):
+                print(f"Toggled RB{pin_idx} input state")
+                self.update_io_pins()
+    
+    def update_io_pins(self):
+        """Updates the I/O pin displays based on current port values."""
+        porta_latch = self.ram[SFR_PORTA_ADDR] & 0x1F  # Only 5 bits for PORTA
+        portb_latch = self.ram[SFR_PORTB_ADDR]
+        # Always read TRIS from Bank 1 addresses directly for GUI display
+        trisa = self.simulator.ram[SFR_TRISA_ADDR] & 0x1F
+        trisb = self.simulator.ram[SFR_TRISB_ADDR]
+        # Read OPTION_REG directly from Bank 1 for RBPU status
+        option = self.simulator.ram[SFR_OPTION_REG_ADDR]
+        rbpu_enabled = ((option >> OPTION_RBPU) & 1) == 0
+
+        # Update Port A Table
+        for i in range(5):  # RA0-RA4
+            col = 5 - i  # Convert pin to column index
+            is_input = (trisa >> i) & 1
+            pin_value = (self.simulator.porta_pins >> i) & 1
+            latch_value = (porta_latch >> i) & 1
+
+            tris_cell = self.porta_table.item(1, col)
+            tris_cell.setText('i' if is_input else 'o')
+            tris_cell.setBackground(QColor("#4A4A4A"))
+
+            pin_cell = self.porta_table.item(2, col)
+            if is_input:
+                pin_cell.setText('1' if pin_value else '0')
+                pin_cell.setBackground(QColor("#5BC0DE" if pin_value else "#D9534F"))
+                pin_cell.setToolTip(f"Latch: {latch_value}, Pin: {pin_value}")
+            else:
+                if i == 4:  # RA4 open-drain
+                    if latch_value:
+                        pin_cell.setText('Z')
+                        pin_cell.setBackground(QColor("#FFC107"))
+                        pin_cell.setToolTip("Hi-Z state (Open-drain high)")
+                    else:
+                        pin_cell.setText('0')
+                        pin_cell.setBackground(QColor("#5A6268"))
+                        pin_cell.setToolTip("Driven low")
+                else:
+                    pin_cell.setText('1' if latch_value else '0')
+                    pin_cell.setBackground(QColor("#28A745" if latch_value else "#5A6268"))
+                    pin_cell.setToolTip(f"Output: {latch_value}")
+
+        # Update Port B Table
+        for i in range(8):  # RB0-RB7
+            col = 8 - i
+            is_input = (trisb >> i) & 1
+            pin_value = (self.simulator.portb_pins >> i) & 1
+            latch_value = (portb_latch >> i) & 1
+            pullup_active = is_input and rbpu_enabled
+
+            tris_cell = self.portb_table.item(1, col)
+            tris_text = 'i' + ('↑' if pullup_active else '')
+            tris_cell.setText(tris_text)
+            tris_cell.setBackground(QColor("#4A4A4A"))
+
+            pin_cell = self.portb_table.item(2, col)
+            if is_input:
+                effective_pin_value = pin_value
+                if pullup_active and effective_pin_value == 0:
+                    pin_cell.setText('1(P)')
+                    pin_cell.setBackground(QColor("#5BC0DE"))
+                    pin_cell.setToolTip(f"Pulled high by weak pullup. Latch: {latch_value}")
+                else:
+                    pin_cell.setText('1' if effective_pin_value else '0')
+                    pin_cell.setBackground(QColor("#5BC0DE" if effective_pin_value else "#D9534F"))
+                    pin_cell.setToolTip(f"Latch: {latch_value}, Pin: {effective_pin_value}")
+            else:
+                pin_cell.setText('1' if latch_value else '0')
+                pin_cell.setBackground(QColor("#28A745" if latch_value else "#5A6268"))
+                pin_cell.setToolTip(f"Output: {latch_value}")
+
     def setup_code_panel(self):
         """Set up the code display panel."""
         code_group = QGroupBox("Code Listing (.LST)")
@@ -745,89 +879,13 @@ class PicSimulatorGUI(QMainWindow):
         self.cycles_label.setText(f"Cycles: {self.simulator.runtime_cycles}")
         
         if self.simulator.frequency_mhz > 0:
+            # Runtime in microseconds = cycles * (instruction clock period)
+            # For PIC, instruction clock period = 4 * oscillator period
+            # So, laufzeit_us = cycles * (4 / frequency_MHz)
             self.simulator.laufzeit_us = self.simulator.runtime_cycles * (4.0 / self.simulator.frequency_mhz)
             self.laufzeit_label.setText(f"Laufzeit: {self.simulator.laufzeit_us:.2f} us")
         else:
             self.laufzeit_label.setText("Laufzeit: N/A (Freq=0)")
-    
-    def update_io_pins(self):
-        """Updates the I/O pin button appearances based on TRIS and latch values."""
-        porta_latch = self.ram[SFR_PORTA_ADDR]
-        portb_latch = self.ram[SFR_PORTB_ADDR]
-        rp0 = self.simulator.get_status_bit(STATUS_RP0)
-        trisa = self.ram[SFR_TRISA_ADDR] if rp0 == 1 else 0xFF
-        trisb = self.ram[SFR_TRISB_ADDR] if rp0 == 1 else 0xFF
-        option = self.ram[SFR_OPTION_REG_ADDR] if rp0 == 1 else 0xFF
-        rbpu_enabled = ((option >> OPTION_RBPU) & 1) == 0
-        
-        # PORTA
-        for i in range(5):
-            is_input = (trisa >> i) & 1
-            pin_stimulus = (self.simulator.porta_pins >> i) & 1
-            latch_level = (porta_latch >> i) & 1
-            pin_name = f"RA{i}"
-            button = self.porta_pin_buttons[i]
-            label = self.trisa_pin_labels[i]
-            
-            if is_input:
-                label.setText(" I ")
-                button.setText(pin_name)
-                button.setStyleSheet("background-color: #5BC0DE;" if pin_stimulus else "background-color: #D9534F;")
-                button.setEnabled(True)
-            else:  # Output
-                label.setText(" O ")
-                output_level = latch_level
-                
-                # RA4 is open drain
-                if i == 4:
-                    pin_state_text = "L" if output_level == 0 else "Hi-Z"
-                    bg_color = "#5A6268" if output_level == 0 else "#FFC107"  # Gray for L, Yellow for Hi-Z
-                    button.setText(f"{pin_name}\n{pin_state_text}")
-                    button.setStyleSheet(f"background-color: {bg_color};")
-                else:  # RA0-RA3 are CMOS
-                    pin_state_text = "H" if output_level else "L"
-                    bg_color = "#28A745" if output_level else "#5A6268"  # Green for H, Gray for L
-                    button.setText(f"{pin_name}\n{pin_state_text}")
-                    button.setStyleSheet(f"background-color: {bg_color};")
-                
-                button.setEnabled(False)
-        
-        # PORTB
-        portb_mismatch_found = False
-        for i in range(8):
-            is_input = (trisb >> i) & 1
-            pin_stimulus = (self.simulator.portb_pins >> i) & 1
-            latch_level = (portb_latch >> i) & 1
-            pullup_active = is_input and rbpu_enabled
-            pin_name = f"RB{i}"
-            button = self.portb_pin_buttons[i]
-            label = self.trisb_pin_labels[i]
-            
-            if is_input:
-                label.setText(" I" + ("(P)" if pullup_active else " "))
-                button.setText(pin_name)
-                button.setStyleSheet("background-color: #5BC0DE;" if pin_stimulus else "background-color: #D9534F;")
-                button.setEnabled(True)
-                
-                # Check for RB Port Change Interrupt
-                if 4 <= i <= 7:
-                    old_latched_level = (self.simulator.portb_latch_on_read >> i) & 1
-                    if pin_stimulus != old_latched_level:
-                        portb_mismatch_found = True
-            else:  # Output
-                label.setText(" O ")
-                output_level = latch_level
-                pin_state_text = "H" if output_level else "L"
-                bg_color = "#28A745" if output_level else "#5A6268"  # Green for H, Gray for L
-                button.setText(f"{pin_name}\n{pin_state_text}")
-                button.setStyleSheet(f"background-color: {bg_color};")
-                button.setEnabled(False)
-        
-        # Set RBIF if mismatch found
-        if portb_mismatch_found:
-            if not self.simulator.get_intcon_bit(INTCON_RBIF):
-                self.simulator.set_intcon_bit(INTCON_RBIF)
-                print("RB Port Change detected (Input != LatchOnRead), RBIF set.")
     
     def highlight_current_line(self):
         """Highlights the line corresponding to the current PC in the code view."""
@@ -951,6 +1009,8 @@ class PicSimulatorGUI(QMainWindow):
             self.simulator.update_timer0(cycles_taken)
             self.simulator.check_interrupts()
             
+            # Force I/O pin update after every instruction
+            self.update_io_pins()
             self.update_gui()
             self.highlight_current_line()
             
@@ -1030,7 +1090,8 @@ class PicSimulatorGUI(QMainWindow):
                 if not self.simulator.running:
                     break
             
-            # Update GUI after batch
+            # Update GUI after batch - ensure I/O pins are always updated
+            self.update_io_pins()
             self.update_gui()
             self.highlight_current_line()
             
@@ -1053,19 +1114,45 @@ class PicSimulatorGUI(QMainWindow):
             new_freq_str = self.freq_edit.text().replace(',', '.')  # Allow comma as decimal sep
             new_freq = float(new_freq_str)
             
-            if new_freq >= 0:
+            if new_freq >= 0.1 and new_freq <= 16.0:
                 self.simulator.frequency_mhz = new_freq
                 print(f"Frequency updated to {self.simulator.frequency_mhz} MHz")
+                # Update slider without triggering valueChanged signal
+                self.freq_slider.blockSignals(True)
+                self.freq_slider.setValue(int(new_freq * 10))
+                self.freq_slider.blockSignals(False)
                 self.update_gui_runtime()
             else:
-                QMessageBox.warning(self, "Invalid Frequency", "Frequency must be non-negative.")
+                QMessageBox.warning(self, "Invalid Frequency", "Frequency must be between 0.1 and 16.0 MHz.")
                 self.freq_edit.setText(str(self.simulator.frequency_mhz))  # Revert
+                # Update slider to match current value
+                self.freq_slider.blockSignals(True)
+                self.freq_slider.setValue(int(self.simulator.frequency_mhz * 10))
+                self.freq_slider.blockSignals(False)
         except ValueError:
             QMessageBox.critical(self, "Invalid Input", "Please enter a valid number for frequency.")
             self.freq_edit.setText(str(self.simulator.frequency_mhz))  # Revert
+            # Update slider to match current value
+            self.freq_slider.blockSignals(True)
+            self.freq_slider.setValue(int(self.simulator.frequency_mhz * 10))
+            self.freq_slider.blockSignals(False)
         
         # Lose focus
         self.code_edit.setFocus()
+    
+    def update_frequency_from_slider(self, value):
+        """Updates the simulator frequency from the slider."""
+        new_freq = value / 10.0  # Convert from scaled value
+        
+        if new_freq >= 0.1 and new_freq <= 16.0:
+            self.simulator.frequency_mhz = new_freq
+            # Update text field to match
+            self.freq_edit.setText(f"{new_freq:.1f}")
+            self.update_gui_runtime()
+            print(f"Frequency updated to {self.simulator.frequency_mhz} MHz")
+        else:
+            # Should not happen with proper slider range
+            print(f"Warning: Invalid frequency from slider: {new_freq}")
     
     def toggle_breakpoint(self, line_number):
         """Toggles a breakpoint on the given line."""
@@ -1109,7 +1196,7 @@ class PicSimulatorGUI(QMainWindow):
             prev_level = (self.simulator.portb_pins >> pin_index) & 1
             self.simulator.portb_pins ^= (1 << pin_index)
             current_level = (self.simulator.portb_pins >> pin_index) & 1
-            print(f"Toggled RB{pin_index} input stimulus to {current_level}")
+            print(f"Togged RB{pin_index} input stimulus to {current_level}")
             
             # Check for RB0/INT edge
             if pin_index == 0:
@@ -1153,6 +1240,10 @@ class PicSimulatorGUI(QMainWindow):
             if address != -1:
                 print(f"Editing SFR {reg_name} (Addr: 0x{address:02X}) to 0x{value:02X}")
                 self.simulator.set_ram(address, value & 0xFF)
+                
+                # For TRIS and PORT registers, ensure I/O pins are updated immediately
+                if reg_name in ["TRISA", "TRISB", "PORTA", "PORTB"]:
+                    self.update_io_pins()
             elif reg_name != "W":
                 print(f"Cannot edit register '{reg_name}' directly.")
             
