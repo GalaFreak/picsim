@@ -499,21 +499,36 @@ class PicSimulator:
 
     def handle_pcl_write(self, is_computed_goto=False):
         """Handles writing to PCL."""
-        pcl = self.ram[SFR_PCL_ADDR]
         pclath_val = self.ram[SFR_PCLATH_ADDR]
-        
+
         if is_computed_goto:
-            # For ADDWF PCL,F and similar instructions:
-            high_bits = (pclath_val & 0x18) << 5  # PCLATH<4:3> -> PC<12:11>
-            mid_bits = (pclath_val & 0x07) << 8   # PCLATH<2:0> -> PC<10:8>
-            self.pc = high_bits | mid_bits | pcl
-            print(f"Computed GOTO: New PC = 0x{self.pc:03X} (PCL={pcl:02X}, PCLATH={pclath_val:02X})")
-        else:
-            # For direct writes (MOVWF PCL):
+            # For computed GOTOs (e.g., ADDWF PCL, F).
+            # The value written to PCL is (PC<7:0> + W) & 0xFF.
+            # However, the PC used here is the *incremented* PC (address of the *next* instruction).
+            pc_low_byte = (self.pc + 1) & 0xFF # Use PC+1 for calculation
+            intended_pcl = (pc_low_byte + self.w_reg) & 0xFF # Use correct attribute w_reg
+
+            # The instruction writes this 'intended_pcl' value into RAM[SFR_PCL_ADDR].
+            # This is crucial because some programs might rely on reading PCL after
+            # a computed GOTO and expect this calculated value, even if the simulator might
+            # read the PCL value incorrectly (e.g., read RAM[PCL] before PC increment).
+            self.ram[SFR_PCL_ADDR] = intended_pcl
+            pcl = intended_pcl # Use the recalculated value for PC update
+
+            # Debug print (optional) - Corrected typo from self.w to self.w_reg
+            # print(f"Computed GOTO: Recalculated PCL = 0x{pcl:02X} (PC_low={pc_low_byte:02X}, W={self.w_reg:02X})")
+
+            # Now calculate the new PC using PCLATH<4:0> and the correct PCL value
             self.pc = ((pclath_val & 0x1F) << 8) | pcl
-            print(f"PCL Direct Write: New PC = 0x{self.pc:03X} (PCL={pcl:02X}, PCLATH={pclath_val:02X})")
-        
-        self.pc &= 0x1FFF  # Ensure PC is within 13 bits
+            # print(f"Computed GOTO: New PC = 0x{self.pc:03X} (PCL={pcl:02X}, PCLATH={pclath_val:02X})") # Original print
+        else:
+            # For direct writes (e.g., MOVWF PCL).
+            # Assume the value written to RAM[SFR_PCL_ADDR] by the instruction is correct.
+            pcl = self.ram[SFR_PCL_ADDR]
+            self.pc = ((pclath_val & 0x1F) << 8) | pcl
+            # print(f"PCL Direct Write: New PC = 0x{self.pc:03X} (PCL={pcl:02X}, PCLATH={pclath_val:02X})") # Original print
+
+        self.pc &= 0x1FFF # Ensure PC is within 13 bits
 
     def handle_tmr0_write(self):
         self.tmr0_inhibit_cycles = 2

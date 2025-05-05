@@ -1,132 +1,134 @@
-# PIC16F84 Simulator Documentation
+# PIC16F84 Simulator Dokumentation
 
-This document provides comprehensive information on the PIC16F84 simulator, explaining both the backend architecture and the frontend user interface.
+Dieses Dokument bietet umfassende Informationen über den PIC16F84-Simulator und erläutert sowohl die Backend-Architektur als auch die Frontend-Benutzeroberfläche.
 
-## Table of Contents
+## Inhaltsverzeichnis
 
-- [System Overview](#system-overview)
-- [Backend Documentation](#backend-documentation)
-- [Frontend Documentation](#frontend-documentation)
-- [Test Programs](#test-programs)
-- [Usage Guide](#usage-guide)
+- [Systemübersicht](#systemübersicht)
+- [Backend Dokumentation](#backend-dokumentation)
+- [Frontend Dokumentation](#frontend-dokumentation)
+- [Testprogramme](#testprogramme)
+- [Bedienungsanleitung (Englisch)](#usage-guide)
+- [Bedienungsanleitung (Deutsch)](#bedienungsanleitung-deutsch)
+- [Speicher- und Registerbearbeitung](#speicher--und-registerbearbeitung)
 
-## System Overview
+## Systemübersicht
 
-The PIC16F84 simulator is a comprehensive development and educational tool designed to simulate the behavior of the PIC16F84 microcontroller. It consists of two main components:
+Der PIC16F84-Simulator ist ein umfassendes Entwicklungs- und Lehrmittel, das das Verhalten des PIC16F84-Mikrocontrollers simuliert. Er besteht aus zwei Hauptkomponenten:
 
-1. **Backend (picsim_backend.py)**: Implements the core simulation logic, including instruction execution, memory management, and peripheral simulation.
-2. **Frontend (picsim_frontend_pyqt.py)**: Provides a graphical user interface using PyQt5, allowing users to interact with the simulator, visualize program execution, and manipulate I/O.
+1. **Backend (picsim_backend.py)**: Implementiert die Kernsimulation, einschließlich der Befehlsausführung, Speicherverwaltung und Peripheriesimulation.
+2. **Frontend (picsim_frontend_pyqt.py)**: Bietet eine grafische Benutzeroberfläche mit PyQt5, die es Benutzern ermöglicht, mit dem Simulator zu interagieren, die Programmausführung zu visualisieren und I/O zu manipulieren.
 
-## Backend Documentation
+## Backend Dokumentation
 
-### Architecture
+### Architektur
 
-The backend simulator implements a cycle-accurate simulation of the PIC16F84 microcontroller, including:
+Der Backend-Simulator implementiert eine zyklusgenaue Simulation des PIC16F84-Mikrocontrollers, einschließlich:
 
-- 14-bit instruction execution engine
-- Memory model with banking
-- Special Function Registers (SFRs)
-- I/O ports and peripherals
-- Timer and interrupt handling
-- EEPROM simulation
+- 14-Bit-Befehlsausführungs-Engine
+- Speichermodell mit Banking
+- Spezialfunktionsregister (SFRs)
+- I/O-Ports und Peripheriegeräte
+- Timer- und Interrupt-Verarbeitung
+- EEPROM-Simulation
 
-### Key Components
+### Hauptkomponenten
 
-#### Memory Model
+#### Speichermodell
 
-- **Program Memory**: 1K words (14-bit)
-- **RAM**: 68 bytes general purpose registers, 16 special function registers
-- **Banking**: Supports Bank 0 and Bank 1 switching via STATUS.RP0 bit
-- **EEPROM**: 64 bytes of data EEPROM
+- **Programmspeicher**: 1K Wörter (14-Bit)
+- **RAM**: 68 Byte allgemeine Zweckregister, 16 Spezialfunktionsregister
+- **Banking**: Unterstützt Bank 0 und Bank 1 Umschaltung über STATUS.RP0 Bit
+- **EEPROM**: 64 Byte Daten-EEPROM
 
-#### Instruction Execution
+#### Befehlsausführung
 
-The instruction execution follows the PIC16F84 datasheet, implementing:
+Die Befehlsausführung folgt dem PIC16F84-Datenblatt und implementiert:
 
-- Byte-oriented file register operations
-- Bit-oriented file register operations
-- Literal and control operations
-- Jump, call, and skip operations
+- Byte-orientierte Dateiregisteroperationen
+- Bit-orientierte Dateiregisteroperationen
+- Literal- und Steueroperationen
+- Sprung-, Aufruf- und Überspringoperationen
 
-#### Peripheral Simulation
+#### Peripheriesimulation
 
-- **Timer0**: With prescaler and internal/external clock source options
-- **I/O Ports**: PORTA (5 bits) and PORTB (8 bits) with configurable direction
-- **Interrupts**: External INT pin, Timer0 overflow, RB port change, EEPROM write complete
-- **EEPROM**: Read and write operations with proper sequence checking
+- **Timer0**: Mit Prescaler und internen/externen Taktquellenoptionen
+- **I/O-Ports**: PORTA (5 Bit) und PORTB (8 Bit) mit konfigurierbarer Richtung
+- **Interrupts**: Externer INT-Pin, Timer0-Überlauf, RB-Port-Änderung, EEPROM-Schreibvorgang abgeschlossen
+- **EEPROM**: Lese- und Schreiboperationen mit korrekter Sequenzprüfung
 
-### Key Classes and Methods
+### Wichtige Klassen und Methoden
 
 #### PicSimulator
 
-Main simulation engine with the following important methods:
+Hauptsimulationseinheit mit den folgenden wichtigen Methoden:
 
-- `decode_execute(opcode)`: Decodes and executes a single instruction
-- `get_ram(address)` / `set_ram(address, value)`: Memory access with banking support
-- `update_timer0(cycles)`: Updates Timer0 based on configuration
-- `check_interrupts()`: Checks and processes interrupt conditions
-- `reset(por)`: Resets the simulator (power-on or MCLR)
-- `toggle_porta_pin(pin_index)` / `toggle_portb_pin(pin_index)`: Simulates external input changes
+- `decode_execute(opcode)`: Dekodiert und führt einen einzelnen Befehl aus
+- `get_ram(address)` / `set_ram(address, value)`: Speicherzugriff mit Banking-Unterstützung
+- `update_timer0(cycles)`: Aktualisiert Timer0 basierend auf der Konfiguration
+- `check_interrupts()`: Überprüft und verarbeitet Interrupt-Bedingungen
+- `reset(por)`: Setzt den Simulator zurück (Power-On oder MCLR)
+- `toggle_porta_pin(pin_index)` / `toggle_portb_pin(pin_index)`: Simuliert externe Eingangsänderungen
 
-## Frontend Documentation
+## Frontend Dokumentation
 
-### GUI Layout
+### GUI-Layout
 
-The GUI is divided into several sections:
+Die GUI ist in mehrere Abschnitte unterteilt:
 
-1. **Control Panel**: Program loading, execution control, and frequency settings
-2. **Runtime Display**: Cycle count and execution time information
-3. **Special Function Registers (SFRs)**: Visualization and editing of SFRs
-4. **Stack Display**: Stack contents visualization
-5. **I/O Ports Panel**: Interactive visualization of PORTA and PORTB
-6. **Code Listing**: Program view with current execution position and breakpoint support
-7. **General Purpose Registers**: View and edit GPRs
+1. **Steuerfeld**: Programmladen, Ausführungskontrolle und Frequenzeinstellungen
+2. **Laufzeitanzeige**: Zyklusanzahl und Ausführungszeitinformationen
+3. **Spezialfunktionsregister (SFRs)**: Visualisierung und Bearbeitung der SFRs
+4. **Stack-Anzeige**: Visualisierung des Stack-Inhalts
+5. **I/O-Ports-Panel**: Interaktive Visualisierung von PORTA und PORTB
+6. **Code-Listing**: Programmansicht mit aktueller Ausführungsposition und Breakpoint-Unterstützung
+7. **Allzweckregister**: Ansicht und Bearbeitung der GPRs
 
-### Main Components
+### Hauptkomponenten
 
-#### Control Panel
-- Load LST file, Test Program 14, and Test Program 15 buttons
-- Reset, Step, Run, and Stop buttons
-- Frequency control with slider and text input
+#### Steuerfeld
+- Load LST-Datei, Testprogramm 14 und Testprogramm 15 Buttons
+- Reset, Step, Run und Stop Buttons
+- Frequenzsteuerung mit Schieberegler und Texteingabe
 
-#### Code Editor
-- Displays LST file with line numbers
-- Supports breakpoint toggling
-- Highlights current execution line
+#### Code-Editor
+- Zeigt LST-Datei mit Zeilennummern an
+- Unterstützt Breakpoint-Umschaltung
+- Hebt die aktuelle Ausführungszeile hervor
 
-#### I/O Visualization
-- Interactive port pins that can be toggled for inputs
-- Visual indicators for pin states (input/output, high/low)
-- TRIS configuration display
-- Color-coded pin states (inputs/outputs)
+#### I/O-Visualisierung
+- Interaktive Port-Pins, die für Eingänge umgeschaltet werden können
+- Visuelle Indikatoren für Pin-Zustände (Eingang/Ausgang, High/Low)
+- TRIS-Konfigurationsanzeige
+- Farblich codierte Pin-Zustände (Eingänge/Ausgänge)
 
-### Visualization Features
+### Visualisierungsfunktionen
 
-- **Stack**: Display of 8-level hardware stack with TOS (Top of Stack) highlighting
-- **SFRs**: Real-time updating display of all Special Function Registers
-- **Port Pins**: Visual representation of I/O pin states with tooltips showing detailed information
-- **Execution Highlighting**: Current instruction is highlighted in the code listing
+- **Stack**: Anzeige des 8-stufigen Hardware-Stacks mit Hervorhebung des TOS (Top of Stack)
+- **SFRs**: Echtzeitaktualisierung der Anzeige aller Spezialfunktionsregister
+- **Port-Pins**: Visuelle Darstellung der I/O-Pin-Zustände mit Tooltips, die detaillierte Informationen anzeigen
+- **Ausführungshervorhebung**: Der aktuelle Befehl wird im Code-Listing hervorgehoben
 
-## Test Programs
+## Testprogramme
 
-### TPicSim14 - LED Sequence Generator
+### TPicSim14 - LED-Sequenzgenerator
 
-This test program demonstrates basic I/O manipulation by implementing a "Leuchtband" (LED sequence) pattern on PORTB. The direction of the sequence is determined by the state of RA0.
+Dieses Testprogramm demonstriert die grundlegende I/O-Manipulation, indem es ein "Leuchtband" (LED-Sequenz) Muster auf PORTB implementiert. Die Richtung der Sequenz wird durch den Zustand von RA0 bestimmt.
 
-**Key features demonstrated:**
-- Port I/O configuration and manipulation
-- Use of carry flag for sequence control
-- Conditional branching based on input
-- Register rotation operations (RRF/RLF)
+**Wichtige demonstrierte Funktionen:**
+- Port-I/O-Konfiguration und -Manipulation
+- Verwendung des Carry-Flags zur Sequenzsteuerung
+- Bedingte Verzweigung basierend auf Eingaben
+- Register-Rotationsoperationen (RRF/RLF)
 
-### TPicSim15 - Port Latch Test
+### TPicSim15 - Port-Latch-Test
 
-This program tests the correct functioning of the port latch mechanism in the PIC microcontroller. It demonstrates how the internal latch value persists even when a pin is configured as an input, and how that value appears on the pin when the pin is reconfigured as an output.
+Dieses Programm testet die korrekte Funktion des Port-Latch-Mechanismus im PIC-Mikrocontroller. Es zeigt, wie der interne Latch-Wert erhalten bleibt, auch wenn ein Pin als Eingang konfiguriert ist, und wie dieser Wert am Pin erscheint, wenn der Pin wieder als Ausgang konfiguriert wird.
 
-**Key features demonstrated:**
-- Port configuration (TRIS registers)
-- Port latch behavior
-- Pin state persistence during I/O direction changes
+**Wichtige demonstrierte Funktionen:**
+- Port-Konfiguration (TRIS-Register)
+- Port-Latch-Verhalten
+- Pin-Zustandspersistenz während I/O-Richtungsänderungen
 
 ## Usage Guide
 
@@ -170,7 +172,70 @@ This program tests the correct functioning of the port latch mechanism in the PI
    
 2. The execution time display ("Laufzeit") will update according to the set frequency
 
-## Memory and Register Editing
+## Bedienungsanleitung (Deutsch)
+
+Diese Anleitung erklärt die Bedienung der grafischen Benutzeroberfläche des PIC16F84 Simulators.
+
+### Laden und Ausführen von Programmen
+
+1.  **Laden einer LST-Datei**:
+    *   Klicken Sie auf den "Load LST"-Button.
+    *   Wählen Sie eine `.LST`-Datei aus dem Dateidialog aus. Der Code wird im Code-Editor angezeigt.
+    *   Alternativ können die Testprogramme "TPicSim14.LST" und "TPicSim15.LST" über die dedizierten Buttons geladen werden.
+2.  **Ausführungskontrolle**:
+    *   **Reset**: Setzt den Simulator auf den Anfangszustand zurück (Programmzähler auf 0, Register zurücksetzen).
+    *   **Step**: Führt den nächsten Befehl aus. Der aktuell ausgeführte Befehl wird im Code-Editor hervorgehoben.
+    *   **Run**: Startet die kontinuierliche Ausführung des Programms mit der eingestellten Geschwindigkeit.
+    *   **Stop**: Hält die kontinuierliche Ausführung an.
+
+### Code-Editor und Breakpoints
+
+1.  **Code-Anzeige**: Zeigt den geladenen Assembler-Code (`.LST`-Datei) mit Zeilennummern an.
+2.  **Aktuelle Zeile**: Die als nächstes auszuführende Codezeile wird hervorgehoben.
+3.  **Breakpoints setzen/entfernen**:
+    *   Klicken Sie auf den Bereich links neben der Zeilennummer (im Zeilennummern-Bereich).
+    *   Ein roter Punkt erscheint, um einen aktiven Breakpoint anzuzeigen.
+    *   Ein erneuter Klick entfernt den Breakpoint.
+    *   Wenn die Ausführung im "Run"-Modus einen Breakpoint erreicht, wird sie automatisch angehalten.
+
+### Register und Speicher bearbeiten
+
+1.  **Spezialfunktionsregister (SFRs)**:
+    *   Die wichtigsten SFRs (W, PCL, STATUS, FSR, PCLATH, INTCON etc.) werden in Echtzeit angezeigt.
+    *   Einige Register (z.B. W, PCLATH) können direkt bearbeitet werden. Klicken Sie in das Feld, geben Sie einen neuen Wert ein (hexadezimal mit `0x` oder dezimal) und drücken Sie Enter.
+2.  **Allzweckregister (GPRs)**:
+    *   Die Register im Speicherbereich (RAM) werden in einer Tabelle angezeigt.
+    *   Klicken Sie auf einen Wert in der Tabelle, um ihn zu bearbeiten (hexadezimal mit `0x` oder dezimal). Drücken Sie Enter zur Bestätigung. Änderungen werden sofort wirksam.
+
+### Stack-Anzeige
+
+*   Zeigt den Inhalt des 8-stufigen Hardware-Stacks an.
+*   Der aktuelle Top-of-Stack (TOS) wird farblich hervorgehoben.
+
+### I/O-Ports (PORTA / PORTB)
+
+1.  **Anzeige**:
+    *   Die Tabellen zeigen den Zustand von PORTA und PORTB.
+    *   **RA/RB Zeile**: Zeigt den Wert des jeweiligen Port-Registers (z.B. `PORTA`).
+    *   **TRIS Zeile**: Zeigt die Datenrichtung an, die durch das TRIS-Register (TRISA/TRISB) festgelegt ist (`i` = Input, `o` = Output).
+    *   **PIN Zeile**: Zeigt den tatsächlichen Zustand des Pins an.
+2.  **Eingänge manipulieren**:
+    *   Klicken Sie auf eine Zelle in der **PIN**-Zeile, um den Logikpegel eines **als Eingang konfigurierten** Pins zu ändern (zwischen 0 und 1).
+    *   Dies simuliert ein externes Signal am Pin.
+    *   Die Farbcodierung zeigt den Zustand an (z.B. Blau=High/1, Rot=Low/0 für Eingänge; Grün=High/1, Dunkelgrau=Low/0 für Ausgänge).
+3.  **Ausgänge beobachten**:
+    *   Der Zustand von als Ausgang konfigurierten Pins spiegelt den Wert im entsprechenden PORT-Register wider. Sie können nicht direkt durch Klicken geändert werden.
+    *   Beachten Sie den Sonderfall RA4 (Open-Drain), der bei High-Pegel als 'Z' angezeigt wird.
+
+### Frequenzsteuerung und Laufzeit
+
+1.  **Frequenz einstellen**:
+    *   Verwenden Sie den Schieberegler oder das Eingabefeld, um die Oszillatorfrequenz (in MHz) einzustellen (Bereich 0.1 bis 16.0 MHz).
+2.  **Laufzeit-Anzeige**:
+    *   **Cycles**: Zeigt die Anzahl der ausgeführten Befehlszyklen seit dem letzten Reset an.
+    *   **Laufzeit**: Zeigt die simulierte Ausführungszeit in Mikrosekunden (µs) an, basierend auf der eingestellten Frequenz und der Anzahl der Zyklen. (Laufzeit = Zyklen * 4 / Frequenz).
+
+## Speicher- und Registerbearbeitung
 
 1. **Modifying Registers**:
    - Click on any editable register field and enter a new value

@@ -951,22 +951,36 @@ class PicSimulatorGUI(QMainWindow):
             cursor = self.code_edit.textCursor()
             cursor.movePosition(QTextCursor.Start)
             cursor.movePosition(QTextCursor.Down, QTextCursor.MoveAnchor, line_num - 1)
-            cursor.select(QTextCursor.LineUnderCursor)
+            # Don't select the whole line, just position the cursor at the start
+            cursor.movePosition(QTextCursor.StartOfLine) 
             
-            # Set the cursor and scroll to it
+            # Set the cursor and scroll to it vertically, keeping horizontal scroll minimal
             self.code_edit.setTextCursor(cursor)
-            self.code_edit.ensureCursorVisible()
+            self.code_edit.ensureCursorVisible() 
             
+            # Reset horizontal scrollbar to the minimum (left) position
+            h_scrollbar = self.code_edit.horizontalScrollBar()
+            h_scrollbar.setValue(h_scrollbar.minimum())
+
             # Apply highlight format for current execution position
             highlight_format = QTextCharFormat()
             highlight_format.setBackground(QColor("yellow"))
             highlight_format.setForeground(QColor("black"))
             
+            # Use a temporary cursor for selection to avoid moving the main cursor
+            highlight_cursor = self.code_edit.textCursor()
+            highlight_cursor.movePosition(QTextCursor.Start)
+            highlight_cursor.movePosition(QTextCursor.Down, QTextCursor.MoveAnchor, line_num - 1)
+            highlight_cursor.select(QTextCursor.LineUnderCursor) # Select the line for highlighting
+
             selection = QTextEdit.ExtraSelection()
             selection.format = highlight_format
-            selection.cursor = cursor
+            selection.cursor = highlight_cursor # Use the temporary cursor for the selection
             
             self.code_edit.setExtraSelections([selection])
+        else:
+             # Clear previous highlights if PC is not mappable
+             self.code_edit.setExtraSelections([])
     
     # --- Control Methods ---
     def load_lst_file(self):
