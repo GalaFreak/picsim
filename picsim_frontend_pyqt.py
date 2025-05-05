@@ -558,12 +558,13 @@ class PicSimulatorGUI(QMainWindow):
         # Create Port A Table
         porta_group = QGroupBox("Port A")
         porta_layout = QVBoxLayout(porta_group)
-        self.porta_table = QTableWidget(3, 9)  # 3 rows (Ra, TRIS, PIN), 9 cols (label + 8 pins)
+        # Changed from 3 to 4 rows to add OUTPUT row
+        self.porta_table = QTableWidget(4, 9)  
         self.porta_table.setHorizontalHeaderLabels(["", "4", "3", "2", "1", "0", "", "", ""])
-        self.porta_table.setVerticalHeaderLabels(["RA", "TRIS", "PIN"])
+        self.porta_table.setVerticalHeaderLabels(["RA", "TRIS", "PIN", "OUTPUT"])
         self.porta_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.porta_table.verticalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.porta_table.setFixedHeight(120)
+        self.porta_table.setFixedHeight(150)  # Increased height to accommodate new row
         
         # Initialize PortA cells
         for col in range(9):
@@ -572,6 +573,7 @@ class PicSimulatorGUI(QMainWindow):
                 self.porta_table.setItem(0, col, QTableWidgetItem(""))
                 self.porta_table.setItem(1, col, QTableWidgetItem(""))
                 self.porta_table.setItem(2, col, QTableWidgetItem(""))
+                self.porta_table.setItem(3, col, QTableWidgetItem(""))
                 continue
                 
             # Disable unused pins (RA5-RA7 don't exist on PIC16F84)
@@ -579,26 +581,32 @@ class PicSimulatorGUI(QMainWindow):
                 item1 = QTableWidgetItem("-")
                 item2 = QTableWidgetItem("-")
                 item3 = QTableWidgetItem("-")
+                item4 = QTableWidgetItem("-")  # New OUTPUT row item
                 item1.setFlags(Qt.ItemIsEnabled)
                 item2.setFlags(Qt.ItemIsEnabled)
                 item3.setFlags(Qt.ItemIsEnabled)
+                item4.setFlags(Qt.ItemIsEnabled)
                 self.porta_table.setItem(0, col, item1)
                 self.porta_table.setItem(1, col, item2)
                 self.porta_table.setItem(2, col, item3)
+                self.porta_table.setItem(3, col, item4)  # Set OUTPUT row item
             else:
-                pin_idx = 9 - col - 1  # Convert from column to pin number (RA4-RA0)
-                # Set up items for TRIS and PIN with default values
+                pin_idx = 5 - col  # Convert from column to pin number (RA4-RA0)
+                # Set up items for TRIS, PIN and OUTPUT with default values
                 ra_item = QTableWidgetItem(f"RA{pin_idx}")
                 tris_item = QTableWidgetItem("i")
                 pin_item = QTableWidgetItem("0")
+                output_item = QTableWidgetItem("0")  # New OUTPUT row item
                 
                 ra_item.setTextAlignment(Qt.AlignCenter)
                 tris_item.setTextAlignment(Qt.AlignCenter)
                 pin_item.setTextAlignment(Qt.AlignCenter)
+                output_item.setTextAlignment(Qt.AlignCenter)
                 
                 # Make items read-only
                 ra_item.setFlags(Qt.ItemIsEnabled)
                 tris_item.setFlags(Qt.ItemIsEnabled)
+                output_item.setFlags(Qt.ItemIsEnabled)
                 
                 # Configure PIN cells to be clickable
                 pin_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
@@ -607,6 +615,7 @@ class PicSimulatorGUI(QMainWindow):
                 self.porta_table.setItem(0, col, ra_item)
                 self.porta_table.setItem(1, col, tris_item)
                 self.porta_table.setItem(2, col, pin_item)
+                self.porta_table.setItem(3, col, output_item)  # Set OUTPUT row item
         
         # Connect clicked signal for PIN row cells
         self.porta_table.cellClicked.connect(self.porta_pin_clicked)
@@ -617,12 +626,13 @@ class PicSimulatorGUI(QMainWindow):
         # Create Port B Table
         portb_group = QGroupBox("Port B")
         portb_layout = QVBoxLayout(portb_group)
-        self.portb_table = QTableWidget(3, 9)  # 3 rows (Rb, TRIS, PIN), 9 cols (label + 8 pins)
+        # Changed from 3 to 4 rows to add OUTPUT row
+        self.portb_table = QTableWidget(4, 9) 
         self.portb_table.setHorizontalHeaderLabels(["", "7", "6", "5", "4", "3", "2", "1", "0"])
-        self.portb_table.setVerticalHeaderLabels(["RB", "TRIS", "PIN"])
+        self.portb_table.setVerticalHeaderLabels(["RB", "TRIS", "PIN", "OUTPUT"])
         self.portb_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.portb_table.verticalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.portb_table.setFixedHeight(120)
+        self.portb_table.setFixedHeight(150)  # Increased height to accommodate new row
         
         # Initialize PortB cells
         for col in range(9):
@@ -631,21 +641,25 @@ class PicSimulatorGUI(QMainWindow):
                 self.portb_table.setItem(0, col, QTableWidgetItem(""))
                 self.portb_table.setItem(1, col, QTableWidgetItem(""))
                 self.portb_table.setItem(2, col, QTableWidgetItem(""))
+                self.portb_table.setItem(3, col, QTableWidgetItem(""))  # New OUTPUT row item
                 continue
                 
             pin_idx = 8 - col  # Convert from column to pin number (RB7-RB0)
-            # Set up items for TRIS and PIN with default values
+            # Set up items for TRIS, PIN and OUTPUT with default values
             rb_item = QTableWidgetItem(f"RB{pin_idx}")
             tris_item = QTableWidgetItem("i")
             pin_item = QTableWidgetItem("0")
+            output_item = QTableWidgetItem("0")  # New OUTPUT row item
             
             rb_item.setTextAlignment(Qt.AlignCenter)
             tris_item.setTextAlignment(Qt.AlignCenter)
             pin_item.setTextAlignment(Qt.AlignCenter)
+            output_item.setTextAlignment(Qt.AlignCenter)
             
             # Make items read-only
             rb_item.setFlags(Qt.ItemIsEnabled)
             tris_item.setFlags(Qt.ItemIsEnabled)
+            output_item.setFlags(Qt.ItemIsEnabled)
             
             # Configure PIN cells to be clickable
             pin_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
@@ -654,6 +668,7 @@ class PicSimulatorGUI(QMainWindow):
             self.portb_table.setItem(0, col, rb_item)
             self.portb_table.setItem(1, col, tris_item)
             self.portb_table.setItem(2, col, pin_item)
+            self.portb_table.setItem(3, col, output_item)  # Set OUTPUT row item
         
         # Connect clicked signal for PIN row cells
         self.portb_table.cellClicked.connect(self.portb_pin_clicked)
@@ -682,74 +697,100 @@ class PicSimulatorGUI(QMainWindow):
     
     def update_io_pins(self):
         """Updates the I/O pin displays based on current port values."""
-        porta_latch = self.ram[SFR_PORTA_ADDR] & 0x1F  # Only 5 bits for PORTA
-        portb_latch = self.ram[SFR_PORTB_ADDR]
-        # Always read TRIS from Bank 1 addresses directly for GUI display
-        trisa = self.simulator.ram[SFR_TRISA_ADDR] & 0x1F
-        trisb = self.simulator.ram[SFR_TRISB_ADDR]
-        # Read OPTION_REG directly from Bank 1 for RBPU status
-        option = self.simulator.ram[SFR_OPTION_REG_ADDR]
-        rbpu_enabled = ((option >> OPTION_RBPU) & 1) == 0
-
-        # Update Port A Table
-        for i in range(5):  # RA0-RA4
-            col = 5 - i  # Convert pin to column index
-            is_input = (trisa >> i) & 1
-            pin_value = (self.simulator.porta_pins >> i) & 1
-            latch_value = (porta_latch >> i) & 1
-
-            tris_cell = self.porta_table.item(1, col)
-            tris_cell.setText('i' if is_input else 'o')
-            tris_cell.setBackground(QColor("#4A4A4A"))
-
-            pin_cell = self.porta_table.item(2, col)
-            if is_input:
-                pin_cell.setText('1' if pin_value else '0')
-                pin_cell.setBackground(QColor("#5BC0DE" if pin_value else "#D9534F"))
-                pin_cell.setToolTip(f"Latch: {latch_value}, Pin: {pin_value}")
-            else:
-                if i == 4:  # RA4 open-drain
-                    if latch_value:
-                        pin_cell.setText('Z')
-                        pin_cell.setBackground(QColor("#FFC107"))
-                        pin_cell.setToolTip("Hi-Z state (Open-drain high)")
-                    else:
-                        pin_cell.setText('0')
-                        pin_cell.setBackground(QColor("#5A6268"))
-                        pin_cell.setToolTip("Driven low")
+        try:
+            # Get current register values
+            porta_latch = self.simulator.ram[SFR_PORTA_ADDR] & 0x1F  # Only 5 bits for PORTA
+            portb_latch = self.simulator.ram[SFR_PORTB_ADDR]
+            
+            # Always read TRIS from Bank 1 addresses directly
+            trisa = self.simulator.ram[SFR_TRISA_ADDR] & 0x1F
+            trisb = self.simulator.ram[SFR_TRISB_ADDR]
+            
+            # Read OPTION_REG directly for RBPU status
+            option = self.simulator.ram[SFR_OPTION_REG_ADDR]
+            rbpu_enabled = ((option >> OPTION_RBPU) & 1) == 0
+            
+            # Update Port A Table
+            for i in range(5):  # RA0-RA4
+                col = 5 - i  # Convert pin to column index
+                is_input = (trisa >> i) & 1
+                pin_value = (self.simulator.porta_pins >> i) & 1
+                latch_value = (porta_latch >> i) & 1
+                
+                # Update TRIS cell
+                tris_cell = self.porta_table.item(1, col)
+                tris_cell.setText('i' if is_input else 'o')
+                tris_cell.setBackground(QColor("#4A4A4A"))
+                
+                # Update PIN cell
+                pin_cell = self.porta_table.item(2, col)
+                if is_input:
+                    pin_cell.setText('1' if pin_value else '0')
+                    pin_cell.setBackground(QColor("#5BC0DE" if pin_value else "#D9534F"))
+                    pin_cell.setToolTip(f"Input Pin Value: {pin_value}")
                 else:
                     pin_cell.setText('1' if latch_value else '0')
                     pin_cell.setBackground(QColor("#28A745" if latch_value else "#5A6268"))
-                    pin_cell.setToolTip(f"Output: {latch_value}")
-
-        # Update Port B Table
-        for i in range(8):  # RB0-RB7
-            col = 8 - i
-            is_input = (trisb >> i) & 1
-            pin_value = (self.simulator.portb_pins >> i) & 1
-            latch_value = (portb_latch >> i) & 1
-            pullup_active = is_input and rbpu_enabled
-
-            tris_cell = self.portb_table.item(1, col)
-            tris_text = 'i' + ('↑' if pullup_active else '')
-            tris_cell.setText(tris_text)
-            tris_cell.setBackground(QColor("#4A4A4A"))
-
-            pin_cell = self.portb_table.item(2, col)
-            if is_input:
-                effective_pin_value = pin_value
-                if pullup_active and effective_pin_value == 0:
-                    pin_cell.setText('1(P)')
-                    pin_cell.setBackground(QColor("#5BC0DE"))
-                    pin_cell.setToolTip(f"Pulled high by weak pullup. Latch: {latch_value}")
+                    pin_cell.setToolTip(f"Output Pin: {latch_value}")
+                
+                # Update OUTPUT cell (shows latch value regardless of direction)
+                output_cell = self.porta_table.item(3, col)
+                if i == 4:  # RA4 open-drain
+                    if latch_value:
+                        output_cell.setText('Z')
+                        output_cell.setBackground(QColor("#FFC107"))
+                        output_cell.setToolTip("Hi-Z state (Open-drain high)")
+                    else:
+                        output_cell.setText('0')
+                        output_cell.setBackground(QColor("#5A6268"))
+                        output_cell.setToolTip("Latch: 0 (drives low)")
                 else:
-                    pin_cell.setText('1' if effective_pin_value else '0')
-                    pin_cell.setBackground(QColor("#5BC0DE" if effective_pin_value else "#D9534F"))
-                    pin_cell.setToolTip(f"Latch: {latch_value}, Pin: {effective_pin_value}")
-            else:
-                pin_cell.setText('1' if latch_value else '0')
-                pin_cell.setBackground(QColor("#28A745" if latch_value else "#5A6268"))
-                pin_cell.setToolTip(f"Output: {latch_value}")
+                    output_cell.setText('1' if latch_value else '0')
+                    output_cell.setBackground(QColor("#28A745" if latch_value else "#5A6268"))
+                    output_cell.setToolTip(f"Latch Value: {latch_value}")
+            
+            # Update Port B Table
+            for i in range(8):  # RB0-RB7
+                col = 8 - i  # Convert pin to column index
+                is_input = (trisb >> i) & 1
+                pin_value = (self.simulator.portb_pins >> i) & 1
+                latch_value = (portb_latch >> i) & 1
+                pullup_active = is_input and rbpu_enabled
+                
+                # Update TRIS cell
+                tris_cell = self.portb_table.item(1, col)
+                tris_text = 'i' + ('↑' if pullup_active else '')
+                tris_cell.setText(tris_text)
+                tris_cell.setBackground(QColor("#4A4A4A"))
+                
+                # Update PIN cell
+                pin_cell = self.portb_table.item(2, col)
+                if is_input:
+                    if pullup_active and pin_value == 0:
+                        pin_cell.setText('1(P)')
+                        pin_cell.setBackground(QColor("#5BC0DE"))
+                        pin_cell.setToolTip("Pulled high by weak pullup")
+                    else:
+                        pin_cell.setText('1' if pin_value else '0')
+                        pin_cell.setBackground(QColor("#5BC0DE" if pin_value else "#D9534F"))
+                        pin_cell.setToolTip(f"Input Pin Value: {pin_value}")
+                else:
+                    pin_cell.setText('1' if latch_value else '0')
+                    pin_cell.setBackground(QColor("#28A745" if latch_value else "#5A6268"))
+                    pin_cell.setToolTip(f"Output Pin: {latch_value}")
+                
+                # Update OUTPUT cell (shows latch value regardless of direction)
+                output_cell = self.portb_table.item(3, col)
+                output_cell.setText('1' if latch_value else '0')
+                output_cell.setBackground(QColor("#28A745" if latch_value else "#5A6268"))
+                output_cell.setToolTip(f"Latch Value: {latch_value}")
+                
+            # Force update of the tables
+            self.porta_table.update()
+            self.portb_table.update()
+            
+        except Exception as e:
+            print(f"Error updating I/O pins: {e}")
 
     def setup_code_panel(self):
         """Set up the code display panel."""
