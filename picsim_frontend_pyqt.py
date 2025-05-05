@@ -1182,35 +1182,35 @@ class PicSimulatorGUI(QMainWindow):
         else:
             print(f"No address found on line {line_number} to set breakpoint.")
     
-    def toggle_porta_pin(self, pin_index):
-        """Toggles the simulated input level of a PORTA pin."""
-        if self.simulator.get_tris_a_bit(pin_index):
-            self.simulator.porta_pins ^= (1 << pin_index)
-            pin_level = (self.simulator.porta_pins >> pin_index) & 1
-            print(f"Toggled RA{pin_index} input stimulus to {pin_level}")
-            self.update_io_pins()
+    # def toggle_porta_pin(self, pin_index):
+    #     """Toggles the simulated input level of a PORTA pin."""
+    #     if self.simulator.get_tris_a_bit(pin_index):
+    #         self.simulator.porta_pins ^= (1 << pin_index)
+    #         pin_level = (self.simulator.porta_pins >> pin_index) & 1
+    #         print(f"Toggled RA{pin_index} input stimulus to {pin_level}")
+    #         self.update_io_pins()
     
-    def toggle_portb_pin(self, pin_index):
-        """Toggles the simulated input level of a PORTB pin."""
-        if self.simulator.get_tris_b_bit(pin_index):
-            prev_level = (self.simulator.portb_pins >> pin_index) & 1
-            self.simulator.portb_pins ^= (1 << pin_index)
-            current_level = (self.simulator.portb_pins >> pin_index) & 1
-            print(f"Togged RB{pin_index} input stimulus to {current_level}")
+    # def toggle_portb_pin(self, pin_index):
+    #     """Toggles the simulated input level of a PORTB pin."""
+    #     if self.simulator.get_tris_b_bit(pin_index):
+    #         prev_level = (self.simulator.portb_pins >> pin_index) & 1
+    #         self.simulator.portb_pins ^= (1 << pin_index)
+    #         current_level = (self.simulator.portb_pins >> pin_index) & 1
+    #         print(f"Togged RB{pin_index} input stimulus to {current_level}")
             
-            # Check for RB0/INT edge
-            if pin_index == 0:
-                option = self.ram[SFR_OPTION_REG_ADDR] if self.simulator.get_status_bit(STATUS_RP0) == 1 else 0xFF
-                intedg = (option >> OPTION_INTEDG) & 1
-                is_rising_edge = prev_level == 0 and current_level == 1
-                is_falling_edge = prev_level == 1 and current_level == 0
+    #         # Check for RB0/INT edge
+    #         if pin_index == 0:
+    #             option = self.ram[SFR_OPTION_REG_ADDR] if self.simulator.get_status_bit(STATUS_RP0) == 1 else 0xFF
+    #             intedg = (option >> OPTION_INTEDG) & 1
+    #             is_rising_edge = prev_level == 0 and current_level == 1
+    #             is_falling_edge = prev_level == 1 and current_level == 0
                 
-                if (intedg == 1 and is_rising_edge) or (intedg == 0 and is_falling_edge):
-                    if not self.simulator.get_intcon_bit(INTCON_INTF):
-                        self.simulator.set_intcon_bit(INTCON_INTF)
-                        print("INT/RB0 edge detected, INTF set.")
+    #             if (intedg == 1 and is_rising_edge) or (intedg == 0 and is_falling_edge):
+    #                 if not self.simulator.get_intcon_bit(INTCON_INTF):
+    #                     self.simulator.set_intcon_bit(INTCON_INTF)
+    #                     print("INT/RB0 edge detected, INTF set.")
             
-            self.update_io_pins()
+    #         self.update_io_pins()
     
     def edit_sfr(self, reg_name, value):
         """Updates a SFR when edited in the UI."""
