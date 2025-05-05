@@ -102,42 +102,43 @@ class PicSimulator:
         address &= 0xFF  # Mask to 8 bits for comparison logic below
 
         rp0 = (self.ram[SFR_STATUS_ADDR] >> STATUS_RP0) & 1
+        actual_addr_in_ram_array = -1 # Use -1 for invalid/unmapped initially
+        effective_addr = -1 # Initialize effective_addr for indirect addressing
 
         if address == SFR_INDF_ADDR:  # Indirect Addressing uses FSR value
             effective_addr = self.ram[SFR_FSR_ADDR]
             if effective_addr == 0x00:
                 return 0  # Reading INDF(0) returns 0
 
-            # Determine the actual address based on FSR and RP0 for banked SFRs
-            actual_addr_in_ram_array = 0
+            # Determine the actual address based on FSR
             # GPR Range (mapped)
             if (GPR_BANK0_START <= effective_addr <= GPR_BANK0_END) or \
                (GPR_BANK1_START <= effective_addr <= GPR_BANK1_END):
-                actual_addr_in_ram_array = effective_addr & 0x7F  # Map to Bank 0 GPR range
-            # SFR Range: Check bank bit RP0
+                actual_addr_in_ram_array = effective_addr & 0x7F  # Map to Bank 0 GPR range (0x0C-0x4F)
+            # SFR Range
             elif effective_addr < GPR_BANK0_START:  # SFR addresses 0x00-0x0B
-                # Shared SFRs?
+                # Shared SFRs (accessible regardless of RP0)
                 if effective_addr in [SFR_PCL_ADDR, SFR_STATUS_ADDR, SFR_FSR_ADDR, SFR_PCLATH_ADDR, SFR_INTCON_ADDR]:
                     actual_addr_in_ram_array = effective_addr
-                # Bank specific SFRs accessed via FSR<0x0C
+                # Bank 0 specific SFRs (accessed via low address)
                 elif rp0 == 0 and effective_addr in [SFR_TMR0_ADDR, SFR_PORTA_ADDR, SFR_PORTB_ADDR, SFR_EEDATA_ADDR, SFR_EEADR_ADDR]:
                     actual_addr_in_ram_array = effective_addr
-                elif rp0 == 1 and effective_addr in [0x01, 0x05, 0x06, 0x08, 0x09]:
-                    actual_addr_in_ram_array = effective_addr | 0x80  # Access Bank 1 address space in array
-                else:
-                    return 0  # Accessing non-existent/wrong-bank SFR via indirect low address
-            else:
-                return 0  # Invalid FSR value
+                # Bank 1 specific SFRs (accessed via low address alias when RP0=1)
+                elif rp0 == 1 and effective_addr in [0x01, 0x05, 0x06, 0x08, 0x09]: # OPTION, TRISA, TRISB, EECON1, EECON2 aliases
+                    actual_addr_in_ram_array = effective_addr | 0x80 # Map to Bank 1 address (0x81, 0x85, 0x86, 0x88, 0x89)
+                # else: Accessing wrong bank via low address -> invalid
+            elif effective_addr >= 0x80: # SFR addresses 0x80+
+                 # Shared SFRs (accessed via high address alias)
+                if effective_addr & 0x7F in [SFR_PCL_ADDR, SFR_STATUS_ADDR, SFR_FSR_ADDR, SFR_PCLATH_ADDR, SFR_INTCON_ADDR]:
+                     actual_addr_in_ram_array = effective_addr & 0x7F
+                 # Bank 1 specific SFRs (accessed via high address)
+                elif rp0 == 1 and effective_addr in [SFR_OPTION_REG_ADDR, SFR_TRISA_ADDR, SFR_TRISB_ADDR, SFR_EECON1_ADDR, SFR_EECON2_ADDR]:
+                     actual_addr_in_ram_array = effective_addr
+                # else: Accessing Bank 0 SFR via high address, or Bank 1 SFR when RP0=0 -> invalid
 
-            # Ensure address is within bounds of our RAM array representation
-            if 0 <= actual_addr_in_ram_array < len(self.ram):
-                # Handle port reads
-                return self.ram[actual_addr_in_ram_array]
-            else:
-                return 0  # Should not happen if logic above is correct
+            # else: FSR points to unimplemented memory (e.g., 0x50-0x7F) -> invalid
 
         else:  # Direct Addressing uses the instruction's 'f' value
-            actual_addr_in_ram_array = 0
             # Determine address based on 'f' and RP0
             if address < GPR_BANK0_START:  # SFR 0x00 - 0x0B
                 # Shared SFRs
@@ -146,58 +147,64 @@ class PicSimulator:
                 # Bank 0 specific SFRs
                 elif rp0 == 0 and address in [SFR_TMR0_ADDR, SFR_PORTA_ADDR, SFR_PORTB_ADDR, SFR_EEDATA_ADDR, SFR_EEADR_ADDR]:
                     actual_addr_in_ram_array = address
-                # Bank 1 specific SFRs
-                elif rp0 == 1 and address in [0x01, 0x05, 0x06, 0x08, 0x09]:
-                    actual_addr_in_ram_array = address | 0x80  # Access Bank 1 address
-                else:
-                    return 0  # Trying to access a bank-specific SFR when in the wrong bank
+                # Bank 1 specific SFRs (accessed via low address alias when RP0=1)
+                elif rp0 == 1 and address in [0x01, 0x05, 0x06, 0x08, 0x09]: # OPTION, TRISA, TRISB, EECON1, EECON2 aliases
+                    actual_addr_in_ram_array = address | 0x80 # Map to Bank 1 address
+                # else: Accessing wrong bank via low address -> invalid
             elif GPR_BANK0_START <= address <= GPR_BANK0_END:  # Bank 0 GPR range
                 actual_addr_in_ram_array = address
             elif address >= 0x80:  # Accessing address >= 0x80 explicitly
                 # Bank 1 GPRs map to Bank 0 GPRs
                 if GPR_BANK1_START <= address <= GPR_BANK1_END:
-                    actual_addr_in_ram_array = address & 0x7F  # Map to Bank 0
-                # Bank 1 SFRs accessed via direct Bank 1 address
+                    actual_addr_in_ram_array = address & 0x7F  # Map to Bank 0 (0x0C-0x4F)
+                # Bank 1 specific SFRs accessed via direct Bank 1 address
                 elif rp0 == 1 and address in [SFR_OPTION_REG_ADDR, SFR_TRISA_ADDR, SFR_TRISB_ADDR, SFR_EECON1_ADDR, SFR_EECON2_ADDR]:
                     actual_addr_in_ram_array = address
                 # Shared SFRs accessed via their Bank 1 address alias
                 elif address & 0x7F in [SFR_PCL_ADDR, SFR_STATUS_ADDR, SFR_FSR_ADDR, SFR_PCLATH_ADDR, SFR_INTCON_ADDR]:
                     actual_addr_in_ram_array = address & 0x7F
-                else:
-                    return 0  # Accessing non-existent Bank 1 address or wrong bank
-            else:
-                return 0  # Address between 0x50 and 0x7F (unused Bank 0 GPR space for F84)
+                # else: Accessing non-existent Bank 1 address or wrong bank -> invalid
+            # else: Address between 0x50 and 0x7F (unused Bank 0 GPR space for F84) -> invalid
 
-            # Read PORTA/B special case: Reads pins, not latch
+        # Perform read if address is valid and within RAM array bounds
+        if 0 <= actual_addr_in_ram_array < len(self.ram):
+            # Read PORTA/B special case: Reads pins for inputs, latch for outputs
             if actual_addr_in_ram_array == SFR_PORTA_ADDR:
-                trisa = self.ram[SFR_TRISA_ADDR] if rp0 == 1 else 0xFF
+                # Need TRISA which is in Bank 1
+                # Read TRISA directly from its Bank 1 location
+                trisa_val = self.ram[SFR_TRISA_ADDR]
                 latch_val = self.ram[SFR_PORTA_ADDR]
                 pin_val = self.porta_pins
                 read_val = 0
                 for i in range(5):
-                    if (trisa >> i) & 1:  # If pin is input
+                    if (trisa_val >> i) & 1:  # If pin is input (TRISA bit = 1)
                         read_val |= (pin_val & (1 << i))  # Read external pin state
-                    else:  # If pin is output
+                    else:  # If pin is output (TRISA bit = 0)
                         read_val |= (latch_val & (1 << i))  # Read latch state
                 # Mask upper bits as they are unimplemented
                 return read_val & 0x1F
             elif actual_addr_in_ram_array == SFR_PORTB_ADDR:
-                trisb = self.ram[SFR_TRISB_ADDR] if rp0 == 1 else 0xFF
-                latch_val = self.ram[SFR_PORTB_ADDR]
-                pin_val = self.portb_pins
+                # Need TRISB which is in Bank 1
+                # Read TRISB directly from its Bank 1 location
+                trisb_val = self.ram[SFR_TRISB_ADDR]
+                latch_val = self.ram[SFR_PORTB_ADDR] # Read current latch value
+                pin_val = self.portb_pins # Read current pin stimulus
                 read_val = 0
                 for i in range(8):
-                    if (trisb >> i) & 1:  # Input
-                        read_val |= (pin_val & (1 << i))
-                    else:  # Output
-                        read_val |= (latch_val & (1 << i))
+                    if (trisb_val >> i) & 1:  # If pin is input (TRISB bit = 1)
+                        read_val |= (pin_val & (1 << i)) # Read external pin state
+                    else:  # If pin is output (TRISB bit = 0)
+                        read_val |= (latch_val & (1 << i)) # Read latch state
                 # Reading PORTB latches the value for interrupt-on-change comparison
-                self.portb_latch_on_read = read_val
+                self.portb_latch_on_read = read_val # Latch the value *read* from the pins/latches
                 return read_val
-            elif 0 <= actual_addr_in_ram_array < len(self.ram):
-                return self.ram[actual_addr_in_ram_array]
             else:
-                return 0
+                # Normal RAM/SFR read
+                return self.ram[actual_addr_in_ram_array]
+        else:
+            # Invalid address calculated or out of bounds
+            # print(f"Warning: Read from invalid/unmapped address. Address={address:02X}, EffAddr={effective_addr if address == SFR_INDF_ADDR else address:02X}, RP0={rp0}, MappedAddr={actual_addr_in_ram_array}")
+            return 0
 
     def set_ram(self, address, value):
         """Writes to RAM, handling banking via STATUS.RP0"""
@@ -205,45 +212,42 @@ class PicSimulator:
         address &= 0xFF  # Mask address for comparison logic
 
         rp0 = (self.ram[SFR_STATUS_ADDR] >> STATUS_RP0) & 1
+        actual_addr_in_ram_array = -1 # Use -1 for invalid/unmapped initially
 
         if address == SFR_INDF_ADDR:  # Indirect Addressing uses FSR value
             effective_addr = self.ram[SFR_FSR_ADDR]
             if effective_addr == 0x00:
                 return  # Writing to INDF(0) is NOP
 
-            # Determine the actual address based on FSR and RP0 for banked SFRs
-            actual_addr_in_ram_array = -1  # Use -1 to indicate invalid initially
+            # Determine the actual address based on FSR
             # GPR Range (mapped)
             if (GPR_BANK0_START <= effective_addr <= GPR_BANK0_END) or \
                (GPR_BANK1_START <= effective_addr <= GPR_BANK1_END):
-                actual_addr_in_ram_array = effective_addr & 0x7F  # Map to Bank 0 GPR range
+                actual_addr_in_ram_array = effective_addr & 0x7F  # Map to Bank 0 GPR range (0x0C-0x4F)
             # SFR Range
             elif effective_addr < GPR_BANK0_START:  # SFR addresses 0x00-0x0B
-                # Shared SFRs
+                # Shared SFRs (accessible regardless of RP0)
                 if effective_addr in [SFR_PCL_ADDR, SFR_STATUS_ADDR, SFR_FSR_ADDR, SFR_PCLATH_ADDR, SFR_INTCON_ADDR]:
                     actual_addr_in_ram_array = effective_addr
-                # Bank specific SFRs
+                # Bank 0 specific SFRs (accessed via low address)
                 elif rp0 == 0 and effective_addr in [SFR_TMR0_ADDR, SFR_PORTA_ADDR, SFR_PORTB_ADDR, SFR_EEDATA_ADDR, SFR_EEADR_ADDR]:
                     actual_addr_in_ram_array = effective_addr
-                elif rp0 == 1 and effective_addr in [0x01, 0x05, 0x06, 0x08, 0x09]:
-                    actual_addr_in_ram_array = effective_addr | 0x80  # Access Bank 1 address
+                # Bank 1 specific SFRs (accessed via low address alias when RP0=1)
+                elif rp0 == 1 and effective_addr in [0x01, 0x05, 0x06, 0x08, 0x09]: # OPTION, TRISA, TRISB, EECON1, EECON2 aliases
+                    actual_addr_in_ram_array = effective_addr | 0x80 # Map to Bank 1 address (0x81, 0x85, 0x86, 0x88, 0x89)
+                # else: Accessing wrong bank via low address -> invalid
+            elif effective_addr >= 0x80: # SFR addresses 0x80+
+                 # Shared SFRs (accessed via high address alias)
+                if effective_addr & 0x7F in [SFR_PCL_ADDR, SFR_STATUS_ADDR, SFR_FSR_ADDR, SFR_PCLATH_ADDR, SFR_INTCON_ADDR]:
+                     actual_addr_in_ram_array = effective_addr & 0x7F
+                 # Bank 1 specific SFRs (accessed via high address)
+                elif rp0 == 1 and effective_addr in [SFR_OPTION_REG_ADDR, SFR_TRISA_ADDR, SFR_TRISB_ADDR, SFR_EECON1_ADDR, SFR_EECON2_ADDR]:
+                     actual_addr_in_ram_array = effective_addr
+                # else: Accessing Bank 0 SFR via high address, or Bank 1 SFR when RP0=0 -> invalid
 
-            # Perform write if address is valid
-            if 0 <= actual_addr_in_ram_array < len(self.ram):
-                # Special handling for STATUS write
-                if actual_addr_in_ram_array == SFR_STATUS_ADDR:
-                    # Preserve read-only/hardware-controlled bits TO, PD
-                    old_status = self.ram[SFR_STATUS_ADDR]
-                    write_mask = ~((1 << STATUS_TO) | (1 << STATUS_PD))
-                    new_status = (old_status & ~write_mask) | (value & write_mask)
-                    self.ram[SFR_STATUS_ADDR] = new_status & 0xFF
-                else:
-                    self.ram[actual_addr_in_ram_array] = value
-                # Call handlers for side effects
-                self.call_sfr_write_handler(actual_addr_in_ram_array)
+            # else: FSR points to unimplemented memory (e.g., 0x50-0x7F) -> invalid
 
         else:  # Direct Addressing uses the instruction's 'f' value
-            actual_addr_in_ram_array = -1
             # Determine address based on 'f' and RP0
             if address < GPR_BANK0_START:  # SFR 0x00 - 0x0B
                 # Shared SFRs
@@ -252,56 +256,68 @@ class PicSimulator:
                 # Bank 0 specific SFRs
                 elif rp0 == 0 and address in [SFR_TMR0_ADDR, SFR_PORTA_ADDR, SFR_PORTB_ADDR, SFR_EEDATA_ADDR, SFR_EEADR_ADDR]:
                     actual_addr_in_ram_array = address
-                # else: Accessing Bank 1 SFR via Bank 0 address - NOP
+                # Bank 1 specific SFRs (accessed via low address alias when RP0=1)
+                elif rp0 == 1 and address in [0x01, 0x05, 0x06, 0x08, 0x09]: # OPTION, TRISA, TRISB, EECON1, EECON2 aliases
+                    actual_addr_in_ram_array = address | 0x80 # Map to Bank 1 address
+                # else: Accessing wrong bank via low address -> invalid
             elif GPR_BANK0_START <= address <= GPR_BANK0_END:  # Bank 0 GPR range
                 actual_addr_in_ram_array = address
             elif address >= 0x80:  # Accessing address >= 0x80 explicitly
                 # Bank 1 GPRs map to Bank 0 GPRs
                 if GPR_BANK1_START <= address <= GPR_BANK1_END:
-                    actual_addr_in_ram_array = address & 0x7F  # Map to Bank 0
+                    actual_addr_in_ram_array = address & 0x7F  # Map to Bank 0 (0x0C-0x4F)
                 # Bank 1 specific SFRs accessed via direct Bank 1 address
                 elif rp0 == 1 and address in [SFR_OPTION_REG_ADDR, SFR_TRISA_ADDR, SFR_TRISB_ADDR, SFR_EECON1_ADDR, SFR_EECON2_ADDR]:
                     actual_addr_in_ram_array = address
                 # Shared SFRs accessed via their Bank 1 address alias
                 elif address & 0x7F in [SFR_PCL_ADDR, SFR_STATUS_ADDR, SFR_FSR_ADDR, SFR_PCLATH_ADDR, SFR_INTCON_ADDR]:
                     actual_addr_in_ram_array = address & 0x7F
+                # else: Accessing non-existent Bank 1 address or wrong bank -> invalid
+            # else: Address between 0x50 and 0x7F (unused Bank 0 GPR space for F84) -> invalid
 
-            # Perform write if address is valid
-            if 0 <= actual_addr_in_ram_array < len(self.ram):
-                if actual_addr_in_ram_array == SFR_STATUS_ADDR:
-                    old_status = self.ram[SFR_STATUS_ADDR]
-                    write_mask = ~((1 << STATUS_TO) | (1 << STATUS_PD))
-                    new_status = (old_status & ~write_mask) | (value & write_mask)
-                    self.ram[SFR_STATUS_ADDR] = new_status & 0xFF
-                else:
-                    self.ram[actual_addr_in_ram_array] = value
-                # Call handlers for side effects
-                self.call_sfr_write_handler(actual_addr_in_ram_array)
+        # Perform write if address is valid and within RAM array bounds
+        if 0 <= actual_addr_in_ram_array < len(self.ram):
+            # Special handling for STATUS write (preserve read-only bits TO, PD)
+            if actual_addr_in_ram_array == SFR_STATUS_ADDR:
+                old_status = self.ram[SFR_STATUS_ADDR]
+                write_mask = ~((1 << STATUS_TO) | (1 << STATUS_PD))
+                new_status = (old_status & ~write_mask) | (value & write_mask)
+                self.ram[SFR_STATUS_ADDR] = new_status & 0xFF
+            # Special handling for EECON2 write (sequence check)
+            elif actual_addr_in_ram_array == SFR_EECON2_ADDR:
+                self.handle_eecon2_write(value) # Pass value for sequence check
+                # Don't actually write to EECON2, it's not a real register
+            else:
+                # Normal RAM/SFR write
+                self.ram[actual_addr_in_ram_array] = value
+
+            # Call handlers for side effects AFTER writing the value
+            self.call_sfr_write_handler(actual_addr_in_ram_array)
+        else:
+            # Invalid address calculated or out of bounds
+            # print(f"Warning: Write to invalid/unmapped address. Address={address:02X}, Value={value:02X}, EffAddr={effective_addr if address == SFR_INDF_ADDR else address:02X}, RP0={rp0}, MappedAddr={actual_addr_in_ram_array}")
+            pass
 
     def call_sfr_write_handler(self, address):
         """Calls the appropriate handler after an SFR write."""
-        # Map Bank 1 aliases to their base address for handlers
-        base_addr = address & 0x7F
-        bank1_addr = address if address >= 0x80 else -1  # Use actual Bank 1 address if applicable
-
-        if base_addr == SFR_PORTA_ADDR: 
+        # Note: address is the actual index in the self.ram array (0x00-0xFF)
+        if address == SFR_PORTA_ADDR:
             self.handle_porta_write()
-        elif base_addr == SFR_PORTB_ADDR: 
+        elif address == SFR_PORTB_ADDR:
             self.handle_portb_write()
-        elif bank1_addr == SFR_TRISA_ADDR: 
+        elif address == SFR_TRISA_ADDR: # Bank 1 address
             self.handle_trisa_write()
-        elif bank1_addr == SFR_TRISB_ADDR: 
+        elif address == SFR_TRISB_ADDR: # Bank 1 address
             self.handle_trisb_write()
-        elif bank1_addr == SFR_OPTION_REG_ADDR: 
-            self.handle_option_write()
-        elif base_addr == SFR_PCL_ADDR: 
-            self.handle_pcl_write(is_computed_goto=False)
-        elif base_addr == SFR_TMR0_ADDR: 
+        elif address == SFR_PCL_ADDR:
+            self.handle_pcl_write()
+        elif address == SFR_TMR0_ADDR:
             self.handle_tmr0_write()
-        elif bank1_addr == SFR_EECON1_ADDR: 
+        elif address == SFR_OPTION_REG_ADDR: # Bank 1 address
+            self.handle_option_write()
+        elif address == SFR_EECON1_ADDR: # Bank 1 address
             self.handle_eecon1_write()
-        elif bank1_addr == SFR_EECON2_ADDR: 
-            self.handle_eecon2_write()
+        # Add other handlers as needed (e.g., INTCON, PCLATH)
 
     def get_status_bit(self, bit_pos):
         return (self.ram[SFR_STATUS_ADDR] >> bit_pos) & 1
@@ -353,16 +369,12 @@ class PicSimulator:
 
     def get_tris_a_bit(self, bit_pos):
         if bit_pos >= 5: return 1  # TRISA<7:5> read as 1 (unimplemented)
-        if self.get_status_bit(STATUS_RP0) == 1:
-            return (self.ram[SFR_TRISA_ADDR] >> bit_pos) & 1
-        else:
-            return 1
+        # Read TRISA directly from its Bank 1 location
+        return (self.ram[SFR_TRISA_ADDR] >> bit_pos) & 1
 
     def get_tris_b_bit(self, bit_pos):
-        if self.get_status_bit(STATUS_RP0) == 1:
-            return (self.ram[SFR_TRISB_ADDR] >> bit_pos) & 1
-        else:
-            return 1
+        # Read TRISB directly from its Bank 1 location
+        return (self.ram[SFR_TRISB_ADDR] >> bit_pos) & 1
 
     def get_eecon1_bit(self, bit_pos):
         if self.get_status_bit(STATUS_RP0) == 1:
@@ -385,70 +397,101 @@ class PicSimulator:
     def handle_porta_write(self):
         """Handles writing to PORTA - updates the latch and affects physical pins when configured as outputs."""
         porta_latch = self.ram[SFR_PORTA_ADDR] & 0x1F  # Only 5 bits available on PORTA
-        rp0 = self.get_status_bit(STATUS_RP0)
-        trisa = self.ram[SFR_TRISA_ADDR] if rp0 == 1 else 0xFF  # Default to inputs if bank not accessible
-        
+        # Need TRISA which is in Bank 1
+        trisa = self.ram[SFR_TRISA_ADDR] # Read TRISA directly
+
         # For each pin configured as output, update the physical pin state to match latch
         for i in range(5):  # PORTA is only 5 bits (RA0-RA4)
-            if ((trisa >> i) & 1) == 0:  # If pin is output
-                # For outputs, physical pin follows latch value
-                if (porta_latch >> i) & 1:
-                    self.porta_pins |= (1 << i)  # Set pin high
-                else:
-                    self.porta_pins &= ~(1 << i)  # Set pin low
-        
-        # When RA4 is output, special handling (open drain)
-        if ((trisa >> 4) & 1) == 0:  # If RA4 is output
-            if (porta_latch >> 4) & 1:  # High means "floating" for open drain
-                # No change to pin state - external pullup would determine level
-                pass
-            else:
-                # Actively driven low
-                self.porta_pins &= ~(1 << 4)
+            is_output = ((trisa >> i) & 1) == 0
+
+            if i == 4: # RA4 open drain special handling
+                if is_output:
+                    if (porta_latch >> 4) & 1: # Latch is 1, pin is Hi-Z (do not drive)
+                        # External pull-up would determine level, simulator leaves pin state alone
+                        pass
+                    else: # Latch is 0, drive low
+                        self.porta_pins &= ~(1 << 4)
+                # else: RA4 is input, pin state determined by external stimulus (self.porta_pins)
+            else: # Normal pins RA0-RA3
+                if is_output:
+                    # Physical pin follows latch value
+                    if (porta_latch >> i) & 1:
+                        self.porta_pins |= (1 << i)  # Set pin high
+                    else:
+                        self.porta_pins &= ~(1 << i)  # Set pin low
+                # else: Pin is input, state determined by external stimulus (self.porta_pins)
 
     def handle_portb_write(self):
         """Handles writing to PORTB - updates the latch and affects physical pins when configured as outputs."""
         portb_latch = self.ram[SFR_PORTB_ADDR]
-        rp0 = self.get_status_bit(STATUS_RP0)
-        trisb = self.ram[SFR_TRISB_ADDR] if rp0 == 1 else 0xFF  # Default to inputs if bank not accessible
-        
-        # Update the latch value used for RB port change detection
-        self.portb_latch_on_read = portb_latch
-        
+        # Need TRISB which is in Bank 1
+        trisb = self.ram[SFR_TRISB_ADDR] # Read TRISB directly
+
+        # Update the latch value used for RB port change detection *before* potentially changing pins
+        # Datasheet: "A read of PORTB reads the status of the pins, whereas a write to it will write to the port latch."
+        # The interrupt flag RBIF is set when *any* enabled RB<7:4> input changes state.
+        # The change is detected by comparing the current pin value with the value latched on the *previous read* of PORTB.
+        # Writing to PORTB updates the latch, which affects outputs immediately. It does NOT directly trigger the interrupt.
+        # self.portb_latch_on_read = portb_latch # This was incorrect, portb_latch_on_read is updated on READ
+
         # For each pin configured as output, update the physical pin state to match latch
         for i in range(8):
-            if ((trisb >> i) & 1) == 0:  # If pin is output
-                # For outputs, physical pin follows latch value
+            if ((trisb >> i) & 1) == 0:  # If pin is output (TRISB bit = 0)
+                # Physical pin follows latch value
                 if (portb_latch >> i) & 1:
                     self.portb_pins |= (1 << i)  # Set pin high
                 else:
                     self.portb_pins &= ~(1 << i)  # Set pin low
+            # else: Pin is input, state determined by external stimulus (self.portb_pins)
+
+        # Writing to PORTB does not trigger check_rb_port_change directly.
+        # The check happens when PORTB is read or when an input pin changes state.
 
     # --- Add these methods to ensure TRIS changes update pin states ---
     def handle_trisa_write(self):
         """Handles writing to TRISA - changes pin direction and immediately affects pin state for output pins."""
         trisa = self.ram[SFR_TRISA_ADDR] & 0x1F  # Only 5 bits implemented
         porta_latch = self.ram[SFR_PORTA_ADDR] & 0x1F
+
         for i in range(5):
-            if ((trisa >> i) & 1) == 0:  # If pin is output
-                if (porta_latch >> i) & 1:
-                    self.porta_pins |= (1 << i)
-                else:
-                    self.porta_pins &= ~(1 << i)
-        # Special handling for RA4 (open drain)
-        if ((trisa >> 4) & 1) == 0 and ((porta_latch >> 4) & 1) == 0:
-            self.porta_pins &= ~(1 << 4)  # Can only drive low
+            is_output = ((trisa >> i) & 1) == 0
+
+            if i == 4: # RA4 open drain special handling
+                if is_output:
+                    if (porta_latch >> 4) & 1: # Latch is 1, pin is Hi-Z (do not drive)
+                         pass # Pin state determined by external factors
+                    else: # Latch is 0, drive low
+                        self.porta_pins &= ~(1 << 4)
+                # else: RA4 becomes input, stop driving (pin state determined by self.porta_pins)
+            else: # Normal pins RA0-RA3
+                if is_output:
+                    # Pin becomes output, drive latch value onto pin
+                    if (porta_latch >> i) & 1:
+                        self.porta_pins |= (1 << i)
+                    else:
+                        self.porta_pins &= ~(1 << i)
+                # else: Pin becomes input, stop driving (pin state determined by self.porta_pins)
 
     def handle_trisb_write(self):
         """Handles writing to TRISB - changes pin direction and immediately affects pin state for output pins."""
         trisb = self.ram[SFR_TRISB_ADDR]
         portb_latch = self.ram[SFR_PORTB_ADDR]
+
         for i in range(8):
-            if ((trisb >> i) & 1) == 0:  # If pin is output
+            if ((trisb >> i) & 1) == 0:  # If pin becomes output (TRISB bit = 0)
+                # Drive latch value onto pin
                 if (portb_latch >> i) & 1:
                     self.portb_pins |= (1 << i)
                 else:
                     self.portb_pins &= ~(1 << i)
+            # else: Pin becomes input, stop driving (pin state determined by self.portb_pins)
+
+        # Writing to TRISB might cause an RB port change condition if an output pin's
+        # driven value differs from the value previously latched during a PORTB read.
+        # However, the interrupt flag RBIF is set based on changes on *inputs*.
+        # Let's call check_rb_port_change() here for simplicity, although datasheet implies
+        # it's more related to input changes vs last read. Re-reading PORTB after TRISB write
+        # would be the most accurate trigger.
         self.check_rb_port_change()
 
     def handle_option_write(self):
@@ -499,17 +542,16 @@ class PicSimulator:
                 print("EECON1 Write: Invalid sequence or WREN=0. Write aborted.")
             self.eecon2_write_step = 0
 
-    def handle_eecon2_write(self):
-        val = self.ram[SFR_EECON2_ADDR]
-        if self.eecon2_write_step == 0 and val == 0x55:
+    def handle_eecon2_write(self, value):
+        if self.eecon2_write_step == 0 and value == 0x55:
             self.eecon2_write_step = 1
             print("EECON2 Write: Step 1 (0x55) received.")
-        elif self.eecon2_write_step == 1 and val == 0xAA:
+        elif self.eecon2_write_step == 1 and value == 0xAA:
             self.eecon2_write_step = 2
             print("EECON2 Write: Step 2 (0xAA) received.")
         else:
             self.eecon2_write_step = 0
-            print(f"EECON2 Write: Invalid sequence value 0x{val:02X} received.")
+            print(f"EECON2 Write: Invalid sequence value 0x{value:02X} received.")
         self.ram[SFR_EECON2_ADDR] = 0
 
     def execute_eeprom_read(self):
