@@ -715,9 +715,14 @@ class PicSimulatorGUI(QMainWindow):
             # Need to read OPTION register correctly based on RP0
             status = self.simulator.ram[SFR_STATUS_ADDR]
             rp0 = (status >> STATUS_RP0) & 1
-            option_addr = SFR_OPTION_REG_ADDR if rp0 == 1 else SFR_OPTION_REG_ADDR # OPTION is always at 0x81
+            option_addr = SFR_OPTION_REG_ADDR # OPTION is always at 0x81
             option = self.simulator.ram[option_addr] # For RBPU check
             rbpu_enabled = ((option >> OPTION_RBPU) & 1) == 0
+
+            # Define colors for pin states
+            color_high = QColor("#28A745")  # Green for High
+            color_low = QColor("#D9534F")   # Red for Low
+            color_hiz = QColor("#FFC107")   # Yellow for Hi-Z
 
             # Update Port A Table
             for i in range(5):  # RA0-RA4
@@ -737,26 +742,24 @@ class PicSimulatorGUI(QMainWindow):
                 if is_input:
                     # Pin is Input: Show the actual pin value (0 or 1)
                     pin_cell.setText('1' if pin_value else '0')
-                    # Color indicates pin level (Blue=High, Red=Low)
-                    pin_cell.setBackground(QColor("#5BC0DE" if pin_value else "#D9534F"))
+                    pin_cell.setBackground(color_high if pin_value else color_low)
                     pin_cell.setToolTip(f"RA{i}: Input Pin Value: {pin_value} (Click to toggle)")
                 else: # Pin is Output
                     if i == 4: # RA4 is special (open-drain)
                         if latch_value: # Latch=1 -> Output is High-Impedance (Z)
                             pin_cell.setText('Z')
-                            pin_cell.setBackground(QColor("#FFC107")) # Yellow for Hi-Z
+                            pin_cell.setBackground(color_hiz) 
                             pin_cell.setToolTip(f"RA{i}: Output Pin: Hi-Z (Open-drain high, Latch=1)")
                         else: # Latch=0 -> Output drives Low (0)
                             pin_cell.setText('0')
-                            pin_cell.setBackground(QColor("#5A6268")) # Gray for driven low
+                            pin_cell.setBackground(color_low) 
                             pin_cell.setToolTip(f"RA{i}: Output Pin: Driving Low (Latch=0)")
                     else: # Normal Output (RA0-RA3)
                         # Show the value being driven (matches latch)
                         pin_cell.setText('1' if latch_value else '0')
-                        # Color indicates driven level (Green=High, Gray=Low)
-                        pin_cell.setBackground(QColor("#28A745" if latch_value else "#5A6268"))
+                        pin_cell.setBackground(color_high if latch_value else color_low)
                         pin_cell.setToolTip(f"RA{i}: Output Pin: Driving {'High' if latch_value else 'Low'} (Latch={latch_value})")
-
+            
             # Update Port B Table
             for i in range(8):  # RB0-RB7
                 col = 8 - i  # Convert pin index to table column index
@@ -776,24 +779,14 @@ class PicSimulatorGUI(QMainWindow):
                 pin_cell = self.portb_table.item(2, col)
                 if is_input:
                     # Pin is Input: Show the actual pin value (0 or 1)
-                    # Special case: If pull-up is active and pin is externally driven low, show '0'.
-                    # If pull-up is active and pin is floating (high), show '1(P)'.
-                    # If pull-up is inactive, show '0' or '1' based on external drive.
-                    # Note: The simulator currently doesn't distinguish floating vs driven high for inputs.
-                    # We simplify: show pin_value, color based on pin_value.
                     pin_cell.setText('1' if pin_value else '0')
-                    # Color indicates pin level (Blue=High, Red=Low)
-                    pin_cell.setBackground(QColor("#5BC0DE" if pin_value else "#D9534F"))
-                    tooltip = f"RB{i}: Input Pin Value: {pin_value}"
-                    if pullup_active:
-                         tooltip += " (Pull-up Enabled)"
-                    tooltip += " (Click to toggle)"
+                    pin_cell.setBackground(color_high if pin_value else color_low)
+                    tooltip = f"RB{i}: Input Pin Value: {pin_value} (Click to toggle)"
                     pin_cell.setToolTip(tooltip)
                 else: # Pin is Output
                     # Show the value being driven (matches latch)
                     pin_cell.setText('1' if latch_value else '0')
-                    # Color indicates driven level (Green=High, Gray=Low)
-                    pin_cell.setBackground(QColor("#28A745" if latch_value else "#5A6268"))
+                    pin_cell.setBackground(color_high if latch_value else color_low)
                     pin_cell.setToolTip(f"RB{i}: Output Pin: Driving {'High' if latch_value else 'Low'} (Latch={latch_value})")
 
             # Force repaint of the tables to ensure changes are visible
