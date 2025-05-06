@@ -247,17 +247,16 @@ class PicSimulatorGUI(QMainWindow):
         self.right_panel = QWidget()
         self.right_layout = QVBoxLayout(self.right_panel)
         
-        # Add panels to the main splitter
         self.main_splitter.addWidget(self.left_panel)
         self.main_splitter.addWidget(self.right_panel)
         
-        # Adjust stretch factors to make left panel wider
-        self.main_splitter.setStretchFactor(0, 3)  # Increased from 1 to 3
-        self.main_splitter.setStretchFactor(1, 2)  # Decreased from 2 to 2
+        # Adjust stretch factors: right panel (index 1) gets more stretch
+        self.main_splitter.setStretchFactor(0, 1)  # Left panel stretch factor
+        self.main_splitter.setStretchFactor(1, 2)  # Right panel stretch factor (larger)
         
-        # Set initial sizes to ensure the left panel is wide enough
-        # This gives approximately 60% of width to left panel, 40% to right
-        self.main_splitter.setSizes([450, 550])
+        # Set initial sizes for the splitter based on 1800px minimum width
+        # Increased left panel width from 600 to 680
+        self.main_splitter.setSizes([610, 1190])
         
         # Initialize UI Components
         self.setup_control_panel()
@@ -364,7 +363,7 @@ class PicSimulatorGUI(QMainWindow):
         control_layout.addWidget(self.load_button, 0, 0)
         
         self.reset_button = QPushButton("Reset (F2)")
-        self.reset_button.clicked.connect(lambda: self.reset(por=False))
+        self.reset_button.clicked.connect(lambda: self.reset(por=True)) # Changed por=False to por=True
         self.reset_button.setShortcut(QKeySequence("F2"))
         control_layout.addWidget(self.reset_button, 0, 1)
         
@@ -531,7 +530,7 @@ class PicSimulatorGUI(QMainWindow):
             entry_widget = QWidget()
             entry_layout = QHBoxLayout(entry_widget)
             entry_layout.setContentsMargins(0, 0, 0, 0)
-            entry_layout.setSpacing(5)
+            entry_layout.setSpacing(0)  # Reduced spacing to 0
             
             # Stack index
             index_label = QLabel(f"{i}:")
@@ -546,7 +545,7 @@ class PicSimulatorGUI(QMainWindow):
             stack_form_layout.addWidget(entry_widget)
         
         stack_layout.addWidget(stack_widget)
-        stack_io_layout.addWidget(stack_group, 1)
+        stack_io_layout.addWidget(stack_group, 0) # Stack group stretch factor to 0
         
         # Add the stack+IO panel to the main layout
         self.left_layout.addWidget(stack_io_widget)
@@ -673,7 +672,7 @@ class PicSimulatorGUI(QMainWindow):
         io_layout.addWidget(portb_group)
         
         # Add IO group to the stack_io_layout
-        self.stack_io_layout.addWidget(io_group, 2)
+        self.stack_io_layout.addWidget(io_group, 1) # I/O group stretch factor to 1
     
     def porta_pin_clicked(self, row, col):
         """Handle clicks on Port A pins."""
@@ -822,6 +821,8 @@ class PicSimulatorGUI(QMainWindow):
         scroll_area.setWidgetResizable(True)
         gpr_container = QWidget()
         gpr_grid = QGridLayout(gpr_container)
+        gpr_grid.setHorizontalSpacing(5) # Added horizontal spacing
+        gpr_grid.setVerticalSpacing(2)   # Added vertical spacing
         
         self.gpr_labels = {}
         self.gpr_values = {}
