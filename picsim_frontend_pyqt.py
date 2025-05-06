@@ -48,6 +48,39 @@ class LineNumberArea(QWidget):
                 bottom = top + self.editor.blockBoundingRect(block).height()
                 block_number += 1
 
+    def mouseMoveEvent(self, event):
+        """Shows a tooltip when hovering over the breakpoint area."""
+        # The breakpoint indicator area is in the left part of the line number area
+        breakpoint_area_width = 16  # Match the width used in lineNumberAreaPaintEvent
+        
+        if event.pos().x() < breakpoint_area_width:
+            # Check if mouse is over a valid line
+            block = self.editor.firstVisibleBlock()
+            block_number = block.blockNumber()
+            top = self.editor.blockBoundingGeometry(block).translated(self.editor.contentOffset()).top()
+            bottom = top + self.editor.blockBoundingRect(block).height()
+            
+            is_over_line = False
+            
+            # Find which line contains the mouse position
+            while block.isValid() and top <= event.pos().y():
+                if event.pos().y() < bottom:
+                    is_over_line = True
+                    break
+                block = block.next()
+                top = bottom
+                bottom = top + self.editor.blockBoundingRect(block).height()
+                block_number += 1
+            
+            if is_over_line:
+                self.setToolTip("Click to toggle breakpoint")
+            else:
+                self.setToolTip("")  # Clear tooltip if not over a line
+        else:
+            self.setToolTip("")  # Clear tooltip if not in breakpoint area
+            
+        super().mouseMoveEvent(event)
+
 class CodeEditorWithBreakpoints(QPlainTextEdit):
     """Enhanced code editor with line numbers and breakpoint toggles."""
     breakpointToggled = pyqtSignal(int)
@@ -465,16 +498,25 @@ class PicSimulatorGUI(QMainWindow):
             "EEIF", "T0IF", "INTF", "RBIF"
         ]
         
+        # Find the longest label to determine consistent label width
+        max_label_width = 0
+        for name in sfr_display_order:
+            if name in sfr_to_display:
+                label_width = len(name) + 1  # +1 for colon
+                max_label_width = max(max_label_width, label_width)
+        
         row, col = 0, 0
-        max_cols = 8  # Make table more compact
+        max_cols = 4  # Reduce columns to make more space for alignment
         
         for name in sfr_display_order:
             if name not in sfr_to_display:
                 continue
                 
-            # Create label
+            # Create label with fixed width and right alignment
             lbl = QLabel(f"{name}:")
-            sfr_layout.addWidget(lbl, row, col, 1, 1)
+            lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            lbl.setMinimumWidth(max_label_width * 10)  # Use font metrics for better sizing
+            sfr_layout.addWidget(lbl, row, col * 2, 1, 1)  # Use col*2 to leave space between columns
             self.sfr_labels[name] = lbl
             
             # Determine entry configuration
@@ -495,20 +537,27 @@ class PicSimulatorGUI(QMainWindow):
             # Create value display
             val_edit = HexSpinBox(width=width, read_only=read_only)
             val_edit.setValue(0)  # Initial value
-            sfr_layout.addWidget(val_edit, row, col + 1, 1, 1)
+            sfr_layout.addWidget(val_edit, row, col * 2 + 1, 1, 1)
             
             if not read_only:
                 val_edit.valueChanged.connect(lambda v, n=name: self.edit_sfr(n, v))
             
             self.sfr_values[name] = val_edit
             
-            col += 2
+            col += 1
             if col >= max_cols:
                 col = 0
                 row += 1
         
+        # Set column stretch factors to maintain alignment
+        for i in range(max_cols * 2):
+            if i % 2 == 0:  # Label columns
+                sfr_layout.setColumnStretch(i, 1)
+            else:  # Value columns
+                sfr_layout.setColumnStretch(i, 0)
+        
         self.left_layout.addWidget(sfr_group)
-    
+
     def setup_stack_panel(self):
         """Set up the stack display panel."""
         # Create horizontal layout for stack and I/O
@@ -821,15 +870,18 @@ class PicSimulatorGUI(QMainWindow):
         scroll_area.setWidgetResizable(True)
         gpr_container = QWidget()
         gpr_grid = QGridLayout(gpr_container)
-        gpr_grid.setHorizontalSpacing(5) # Added horizontal spacing
-        gpr_grid.setVerticalSpacing(2)   # Added vertical spacing
+        gpr_grid.setHorizontalSpacing(5)  # Moderate horizontal spacing
+        gpr_grid.setVerticalSpacing(2)
         
         self.gpr_labels = {}
         self.gpr_values = {}
         
+        # Calculate the fixed width for address labels (all are 2 hex digits + colon)
+        address_label_width = 30  # Reduced width for more compact display
+        
         # Create GPR entries in a grid layout
         num_gpr_rows = (GPR_BANK0_END - GPR_BANK0_START + 1)
-        gpr_cols = 10  # More columns for better use of space
+        gpr_cols = 10  # Back to original column count for compact display
         gpr_rows_per_col = (num_gpr_rows + gpr_cols - 1) // gpr_cols
         
         for i in range(num_gpr_rows):
@@ -839,8 +891,10 @@ class PicSimulatorGUI(QMainWindow):
             col_num = (i // gpr_rows_per_col) * 2
             row_num = i % gpr_rows_per_col
             
-            # Address label
+            # Address label with right alignment and fixed width
             lbl = QLabel(f"{addr_hex}:")
+            lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            lbl.setMinimumWidth(address_label_width)
             gpr_grid.addWidget(lbl, row_num, col_num)
             self.gpr_labels[addr] = lbl
             
@@ -850,6 +904,13 @@ class PicSimulatorGUI(QMainWindow):
             val_edit.valueChanged.connect(lambda v, a=addr: self.edit_gpr(a, v))
             gpr_grid.addWidget(val_edit, row_num, col_num + 1)
             self.gpr_values[addr] = val_edit
+        
+        # Set column stretch factors - minimal values for tighter layout
+        for i in range(gpr_cols * 2):
+            if i % 2 == 0:  # Label columns
+                gpr_grid.setColumnStretch(i, 0)  # Reduced stretch
+            else:  # Value columns
+                gpr_grid.setColumnStretch(i, 0)
         
         scroll_area.setWidget(gpr_container)
         gpr_layout.addWidget(scroll_area)
