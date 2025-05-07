@@ -1,16 +1,15 @@
 # coding: utf-8
 import sys
 import re
-import time
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QPushButton, QLabel, QLineEdit,
-    QVBoxLayout, QHBoxLayout, QGridLayout, QSplitter, QFrame, QGroupBox,
-    QFileDialog, QMessageBox, QPlainTextEdit, QListWidget, QListWidgetItem,
-    QScrollArea, QTableWidget, QTableWidgetItem, QHeaderView, QTabWidget,
+    QVBoxLayout, QHBoxLayout, QGridLayout, QSplitter, QGroupBox,
+    QFileDialog, QMessageBox, QPlainTextEdit,
+    QScrollArea, QTableWidget, QTableWidgetItem, QHeaderView,
     QStyleFactory, QTextEdit, QSlider
 )
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot, QRect, QSize
-from PyQt5.QtGui import QFont, QColor, QTextCharFormat, QTextCursor, QPalette, QIcon, QPainter, QKeySequence
+from PyQt5.QtGui import QFont, QColor, QTextCharFormat, QTextCursor, QPalette, QPainter, QKeySequence
 
 # Import our backend simulator
 from picsim_backend import *
@@ -1059,9 +1058,9 @@ class PicSimulatorGUI(QMainWindow):
             self.address_map = {}  # Maps line number to address
             max_addr = -1
             
-            with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+            with open(filepath, 'r', encoding='utf-8', errors='ignore') as file:
                 line_idx = 1
-                for line in f:
+                for line in file:
                     # Add line to code editor
                     self.code_edit.appendPlainText(line.rstrip())
                     
@@ -1088,8 +1087,8 @@ class PicSimulatorGUI(QMainWindow):
             
             self.reset(por=True)  # Reset processor after loading
             
-        except Exception as e:
-            QMessageBox.critical(self, "Load LST Error", f"Failed to load or parse LST file:\n{e}")
+        except Exception as error:
+            QMessageBox.critical(self, "Load LST Error", f"Failed to load or parse LST file:\n{error}")
     
     def reset(self, por=True):
         """Resets the simulator state."""
@@ -1140,12 +1139,12 @@ class PicSimulatorGUI(QMainWindow):
             self.update_gui()
             self.highlight_current_line()
             
-        except ValueError as e:
+        except ValueError as error:
             QMessageBox.critical(self, "Instruction Error", 
-                            f"Error executing instruction at PC=0x{self.last_pc:03X} (Opcode: 0x{self.prog_mem[self.last_pc]:04X}):\n{e}")
+                            f"Error executing instruction at PC=0x{self.last_pc:03X} (Opcode: 0x{self.prog_mem[self.last_pc]:04X}):\n{error}")
             self.stop_program()
-        except Exception as e:
-            QMessageBox.critical(self, "Runtime Error", f"Unexpected error at PC=0x{self.last_pc:03X}:\n{e}")
+        except Exception as error:
+            QMessageBox.critical(self, "Runtime Error", f"Unexpected error at PC=0x{self.last_pc:03X}:\n{error}")
             self.stop_program()
         finally:
             self.step_mode = False
@@ -1221,14 +1220,14 @@ class PicSimulatorGUI(QMainWindow):
             self.update_gui()
             self.highlight_current_line()
             
-        except ValueError as e:
+        except ValueError as error:
             QMessageBox.critical(self, "Instruction Error", 
-                            f"Error executing instruction at PC=0x{self.last_pc:03X} (Opcode: 0x{self.prog_mem[self.last_pc]:04X}):\n{e}")
+                            f"Error executing instruction at PC=0x{self.last_pc:03X} (Opcode: 0x{self.prog_mem[self.last_pc]:04X}):\n{error}")
             self.stop_program()
             self.update_gui()
             self.highlight_current_line()
-        except Exception as e:
-            QMessageBox.critical(self, "Runtime Error", f"Unexpected error at PC=0x{self.last_pc:03X}:\n{e}")
+        except Exception as error:
+            QMessageBox.critical(self, "Runtime Error", f"Unexpected error at PC=0x{self.last_pc:03X}:\n{error}")
             self.stop_program()
             self.update_gui()
             self.highlight_current_line()
@@ -1386,8 +1385,8 @@ class PicSimulatorGUI(QMainWindow):
             self.update_gui_stack()
             self.update_gui_runtime()
 
-        except Exception as e:
-            QMessageBox.critical(self, "SFR Edit Error", f"Error setting {reg_name}: {e}")
+        except Exception as error:
+            QMessageBox.critical(self, "SFR Edit Error", f"Error setting {reg_name}: {error}")
             # Revert display to current simulator state on error
             self.update_gui()
 
@@ -1400,8 +1399,8 @@ class PicSimulatorGUI(QMainWindow):
             else:
                 print(f"Invalid GPR address for edit: 0x{address:02X}")
             
-        except Exception as e:
-            QMessageBox.critical(self, "Edit Error", f"Error setting GPR 0x{address:02X}: {e}")
+        except Exception as error:
+            QMessageBox.critical(self, "Edit Error", f"Error setting GPR 0x{address:02X}: {error}")
             self.update_gui_sfr_gpr()  # Revert display
 
 

@@ -1,6 +1,4 @@
 # coding: utf-8
-import time
-import threading  # For EEPROM Write Time simulation
 
 # Constants based on PIC16F84 datasheet
 PROG_MEM_SIZE = 0x400  # 1K words
@@ -699,14 +697,12 @@ class PicSimulator:
             if opcode == 0b00000001100100:  # CLRWDT
                 print(f"PC=0x{self.pc:03X}: CLRWDT")
                 # 00h -> WDT, 0 -> WDT prescaler, 1 -> TO, 1 -> PD
-                # TODO: Implement WDT state and prescaler clearing
                 status = self.ram[SFR_STATUS_ADDR]
                 status |= (1 << STATUS_TO) | (1 << STATUS_PD)
                 self.ram[SFR_STATUS_ADDR] = status
             elif opcode == 0b00000001100011:  # SLEEP
                 print(f"PC=0x{self.pc:03X}: SLEEP")
                 # 00h -> WDT, 0 -> WDT prescaler, 1 -> TO, 0 -> PD
-                # TODO: Implement WDT clearing, oscillator stop simulation
                 status = self.ram[SFR_STATUS_ADDR]
                 status |= (1 << STATUS_TO)
                 status &= ~(1 << STATUS_PD)
@@ -1021,11 +1017,6 @@ class PicSimulator:
             self.pc = (self.pc + 1) & 0x1FFF  # Mask to 13 bits
 
         return cycles
-
-    def update_bank_dependent_regs(self):
-        """Update any state that depends on the current bank."""
-        # This function is mainly for frontend use, but included here for completeness
-        pass
 
     def reset(self, por=True):
         """Resets the simulator state."""
