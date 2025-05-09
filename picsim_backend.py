@@ -578,41 +578,112 @@ class PicSimulator:
         self.eeprom_data[addr] = data
         print(f"EEPROM Write: Addr=0x{addr:02X} Data=0x{data:02X}")
 
-    def update_timer0(self, cycles_elapsed=1):
-        """Updates TMR0 based on configuration."""
-        option = self.ram[SFR_OPTION_REG_ADDR] if self.get_status_bit(STATUS_RP0) == 1 else 0xFF
-        psa = (option >> OPTION_PSA) & 1
-        t0cs = (option >> OPTION_T0CS) & 1
-
-        prescaler_mask = 0b111
-        prescaler_bits = option & prescaler_mask
-        tmr0_prescale = 1
-        if psa == 0:  # Prescaler assigned to TMR0
-            tmr0_prescale = 2 << prescaler_bits  # 2, 4, 8, ..., 256
-
-        tmr0_val_before = self.ram[SFR_TMR0_ADDR]
-
-        for _ in range(cycles_elapsed):
-            if self.tmr0_inhibit_cycles > 0:
-                self.tmr0_inhibit_cycles -= 1
-                continue
-
-            clock_edge_occurred = False
-            if t0cs == 0:  # Internal clock (Fosc/4)
-                clock_edge_occurred = True
-            else:  # External clock (RA4/TOCKI pin)
-                clock_edge_occurred = True  # Simplified simulation
-
-            if clock_edge_occurred:
-                self.prescaler_counter += 1
-                if self.prescaler_counter >= tmr0_prescale:
-                    self.prescaler_counter = 0
-                    tmr0_val = self.ram[SFR_TMR0_ADDR]
-                    tmr0_val = (tmr0_val + 1) & 0xFF
-                    self.ram[SFR_TMR0_ADDR] = tmr0_val
-                    if tmr0_val == 0 and tmr0_val_before == 0xFF:
-                        self.set_intcon_bit(INTCON_T0IF)
-                        print("TMR0 Overflow, T0IF set.")
+    def update_timer0(self, cycles=1):
+        """Update Timer0 based on configuration and elapsed cycles."""
+        # Get OPTION register (Bank 1, address 0x01)
+        option_reg = self.get_ram(0x81)
+        
+        # Check which clock source to use
+        t0cs = (option_reg >> 5) & 1  # T0CS bit (bit 5)
+        
+        if t0cs == 0:  # Internal clock mode (instruction cycle)
+            t0se = 0  # Not used in internal clock mode
+            psa = (option_reg >> 3) & 1  # PSA bit (bit 3)
+            ps = option_reg & 0x07  # PS2:PS0 bits (bits 0-2)
+            
+            # Calculate prescaler value
+            if psa == 0:  # Prescaler assigned to Timer0
+                prescaler_values = {0: 2, 1: 4, 2: 8, 3: 16, 4: 32, 5: 64, 6: 128, 7: 256}
+                prescaler_value = prescaler_values[ps]
+                
+                # Update prescaler counter
+                self.prescaler_counter += cycles
+                if self.prescaler_counter >= prescaler_value:
+                    # Increment TMR0
+                    increments = self.prescaler_counter // prescaler_value
+                    self.prescaler_counter %= prescaler_value
+                    
+                    tmr0 = self.get_ram(0x01)  # TMR0 register
+                    tmr0 = (tmr0 + increments) & 0xFF
+                    self.set_ram(0x01, tmr0)
+            else:  # Prescaler assigned to WDT
+                # In this case, Timer0 is incremented on every instruction cycle
+                tmr0 = self.get_ram(0x01)  # TMR0 register
+                tmr0 = (tmr0 + cycles) & 0xFF
+                self.set_ram(0x01, tmr0)
+        else:  # External clock mode (RA4/T0CKI pin)
+            # In external clock mode, Timer0 is handled when toggle_porta_pin is called
+            pass
+    
+    def toggle_porta_pin(self, pin_index, value=None):
+        """Toggle or set a specific pin on PORTA."""
+        if pin_index < 0 or pin_index > 4:  # PORTA has 5 pins (RA0-RA4)
+            return
+        
+        porta = self.get_ram(0x05)  # PORTA register
+        trisa = self.get_ram(0x85)  # TRISA register
+        
+        # Check if the pin is configured as input
+        if (trisa & (1 << pin_index)) == 0:
+            return  # Pin is output, can't toggle externally
+            
+        old_value = (porta >> pin_index) & 1
+        
+        if value is None:
+            # Toggle the pin
+            new_value = 1 - old_value
+        else:
+            # Set to specified value
+            new_value = 1 if value else 0
+            
+        # If it's already the desired value, do nothing
+        if old_value == new_value:
+            return
+            
+        # Set the pin value
+        if new_value:
+            porta |= (1 << pin_index)
+        else:
+            porta &= ~(1 << pin_index)
+            
+        self.set_ram(0x05, porta)
+        
+        # Handle Timer0 if this is RA4 (T0CKI pin) and Timer0 is in external clock mode
+        if pin_index == 4:
+            option_reg = self.get_ram(0x81)
+            
+            # Check if Timer0 is in external clock mode
+            t0cs = (option_reg >> 5) & 1
+            if t0cs == 1:  # External clock mode
+                # Check T0SE bit to determine triggering edge
+                t0se = (option_reg >> 4) & 1  # T0SE bit (bit 4)
+                
+                # Only trigger on the specified edge (falling edge if T0SE=1)
+                edge_triggered = (t0se == 1 and old_value == 1 and new_value == 0) or \
+                               (t0se == 0 and old_value == 0 and new_value == 1)
+                               
+                if edge_triggered:
+                    # Check if prescaler is assigned to Timer0
+                    psa = (option_reg >> 3) & 1
+                    ps = option_reg & 0x07
+                    
+                    if psa == 0:  # Prescaler assigned to Timer0
+                        # Increment prescaler counter
+                        self.prescaler_counter += 1
+                        prescaler_values = {0: 2, 1: 4, 2: 8, 3: 16, 4: 32, 5: 64, 6: 128, 7: 256}
+                        prescaler_value = prescaler_values[ps]
+                        
+                        if self.prescaler_counter >= prescaler_value:
+                            # Reset counter and increment TMR0
+                            self.prescaler_counter = 0
+                            tmr0 = self.get_ram(0x01)
+                            tmr0 = (tmr0 + 1) & 0xFF
+                            self.set_ram(0x01, tmr0)
+                    else:  # No prescaler for Timer0
+                        # Directly increment TMR0
+                        tmr0 = self.get_ram(0x01)
+                        tmr0 = (tmr0 + 1) & 0xFF
+                        self.set_ram(0x01, tmr0)
 
     def check_interrupts(self):
         """Checks if any enabled interrupt has occurred and triggers ISR jump if GIE is set."""
