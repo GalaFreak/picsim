@@ -67,7 +67,7 @@ EECON1_WRERR = 3
 EECON1_EEIF = 4
 
 class PicSimulator:
-    def __init__(self):
+    def __init__(self, *args, **kwargs):
         # Simulator State
         self.prog_mem = [0x3FFF] * PROG_MEM_SIZE
         self.ram = [0] * (RAM_SIZE * 2)  # Combined Banks 0 and 1 RAM
@@ -92,6 +92,16 @@ class PicSimulator:
         self.breakpoints = set()
         self.last_pc = 0
         self.line_addr_map = {}
+        
+        # Watchdog Timer state
+        self.wdt_counter = 0
+        self.wdt_enabled = True  # WDT is enabled by default on power-up
+        self.wdt_timeout = 18000  # Exact WDT timeout in cycles at 1MHz
+        self.on_wdt_timeout = None  # Callback for WDT timeout notification
+        self.sleep_mode = False  # Track if processor is in sleep mode
+        self.wdt_last_reset_time = 0  # Track when WDT was last reset
+        self.wdt_elapsed_us = 0.0
+        self.wdt_timeout_us = 18000.0  # 18 ms in microseconds
 
     # --- Memory Access Methods ---
     def get_ram(self, address):
@@ -101,7 +111,6 @@ class PicSimulator:
 
         rp0 = (self.ram[SFR_STATUS_ADDR] >> STATUS_RP0) & 1
         actual_addr_in_ram_array = -1 # Use -1 for invalid/unmapped initially
-        effective_addr = -1 # Initialize effective_addr for indirect addressing
 
         if address == SFR_INDF_ADDR:  # Indirect Addressing uses FSR value
             effective_addr = self.ram[SFR_FSR_ADDR]
@@ -771,16 +780,25 @@ class PicSimulator:
                 status = self.ram[SFR_STATUS_ADDR]
                 status |= (1 << STATUS_TO) | (1 << STATUS_PD)
                 self.ram[SFR_STATUS_ADDR] = status
+                # Reset WDT counter
+                self.wdt_counter = 0
+                # Reset prescaler if assigned to WDT
+                option_reg = self.get_ram(0x81)
+                psa = (option_reg >> 3) & 1  # PSA bit
+                if psa == 1:  # If prescaler assigned to WDT
+                    self.prescaler_counter = 0
             elif opcode == 0b00000001100011:  # SLEEP
                 print(f"PC=0x{self.pc:03X}: SLEEP")
                 # 00h -> WDT, 0 -> WDT prescaler, 1 -> TO, 0 -> PD
                 status = self.ram[SFR_STATUS_ADDR]
-                status |= (1 << STATUS_TO)
                 status &= ~(1 << STATUS_PD)
                 self.ram[SFR_STATUS_ADDR] = status
-                self.running = False  # Halt simulation for SLEEP
-                print("SLEEP instruction executed. Halting.")
-                pc_increment = True  # PC should increment then halt
+                # Only enter sleep if not already in it
+                if not self.sleep_mode:
+                    self.sleep_mode = True
+                    self.running = False  # Halt simulation for SLEEP
+                    print("SLEEP instruction executed. Entering sleep mode.")
+                pc_increment = False  # Don't increment PC when entering sleep
             elif op_sub == 0b0000 and (opcode & 0x80):  # MOVWF f (00 0000 1fff ffff)
                 print(f"PC=0x{self.pc:03X}: MOVWF 0x{f_addr:02X}")
                 self.set_ram(f_addr, self.w_reg)
@@ -945,7 +963,7 @@ class PicSimulator:
                 self.pc = self.pop_stack()
                 cycles = 2
                 pc_increment = False  # PC is set by pop
-            elif opcode == 0b00000000001001:  # RETFIE (Corrected from 0b00000000001009)
+            elif opcode == 0x0009:  # Todo keine Ahnung ob das so stimmt
                 print(f"PC=0x{self.pc:03X}: RETFIE")
                 self.pc = self.pop_stack()
                 self.set_intcon_bit(INTCON_GIE)  # Enable global interrupts
@@ -1104,6 +1122,8 @@ class PicSimulator:
         self.porta_pins = 0
         self.portb_pins = 0
         self.portb_latch_on_read = 0
+        self.wdt_counter = 0  # Reset WDT counter
+        self.sleep_mode = False  # Exit sleep mode on reset
 
         # Clear GPRs
         for i in range(GPR_BANK0_START, GPR_BANK0_END + 1):
@@ -1188,3 +1208,52 @@ class PicSimulator:
         if current_rb_high != latch_rb_high:
             self.set_intcon_bit(INTCON_RBIF)
             print(f"RB Port Change detected. RBIF set. Current:{current_rb_high:04b} vs Latch:{latch_rb_high:04b}")
+
+    def update_wdt(self, cycles=1):
+        """Update the Watchdog Timer counter and check for timeout."""
+        if not self.wdt_enabled:
+            return False  # WDT disabled, no timeout
+        
+        # Convert instruction cycles to microseconds
+        dt_us = cycles * (4.0 / self.frequency_mhz)
+        
+        # Check if WDT prescaler is assigned
+        option_reg = self.get_ram(0x81)
+        psa = (option_reg >> 3) & 1
+        ps = option_reg & 0x07
+        
+        # If prescaler is assigned to WDT (PSA=1), use it to scale the cycles
+        if psa == 1:  # Prescaler assigned to WDT
+            prescaler_values = {0: 1, 1: 2, 2: 4, 3: 8, 4: 16, 5: 32, 6: 64, 7: 128}
+            dt_us *= prescaler_values[ps]
+        
+        self.wdt_elapsed_us += dt_us
+        
+        # Check for timeout - exactly 18ms (18000µs)
+        if self.wdt_elapsed_us >= self.wdt_timeout_us:
+            # WDT timed out - reset counter
+            self.wdt_elapsed_us = 0.0
+            
+            # WDT timeout clears the TO bit
+            self.ram[SFR_STATUS_ADDR] &= ~(1 << STATUS_TO)
+            
+            # Notify GUI if callback is set
+            if self.on_wdt_timeout:
+                self.on_wdt_timeout()
+                
+            # If in sleep mode, wake up 
+            if self.sleep_mode:
+                self.sleep_mode = False
+                self.running = True
+                # Increment PC when waking up from sleep
+                self.pc = (self.pc + 1) & 0x1FFF
+                print("WDT timeout detected during SLEEP - waking up processor")
+                return True  # Indicate timeout occurred
+                
+            # Otherwise cause a reset if not in sleep mode
+            if not self.step_mode:  # Don't auto-reset in step mode
+                print("WDT timeout detected - resetting processor")
+                self.reset(por=False)  # WDT reset (not power-on)
+                return True
+                
+        return False  # No timeout occurred

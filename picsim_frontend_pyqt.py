@@ -244,8 +244,8 @@ class HexSpinBox(QLineEdit):
                 self.setText(f"{self._value:02X}")
 
 class PicSimulatorGUI(QMainWindow):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         
         # Create backend simulator
         self.simulator = PicSimulator()
@@ -307,6 +307,9 @@ class PicSimulatorGUI(QMainWindow):
         
         # Apply dark mode theme
         self.apply_dark_theme()
+
+        # Set up WDT timeout callback
+        self.simulator.on_wdt_timeout = self.on_wdt_timeout
     
     def apply_dark_theme(self):
         """Apply a dark theme to the application."""
@@ -556,8 +559,51 @@ class PicSimulatorGUI(QMainWindow):
             else:  # Value columns
                 sfr_layout.setColumnStretch(i, 0)
         
+        # Add WDT Enable/Disable Button
+        wdt_btn_label = QLabel("WDT:")
+        wdt_btn_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        sfr_layout.addWidget(wdt_btn_label, row + 1, 0)
+        
+        self.wdt_toggle_btn = QPushButton("Enabled" if self.simulator.wdt_enabled else "Disabled")
+        self.wdt_toggle_btn.setStyleSheet(
+            "QPushButton { background-color: #28A745; color: white; }" if self.simulator.wdt_enabled 
+            else "QPushButton { background-color: #DC3545; color: white; }"
+        )
+        self.wdt_toggle_btn.clicked.connect(self.toggle_wdt)
+        sfr_layout.addWidget(self.wdt_toggle_btn, row + 1, 1, 1, 3)
+        
         self.left_layout.addWidget(sfr_group)
 
+    def toggle_wdt(self):
+        """Toggle the Watchdog Timer enable/disable state."""
+        # Toggle the WDT state in the simulator
+        self.simulator.wdt_enabled = not self.simulator.wdt_enabled
+        
+        # Update button text and style based on new state
+        if self.simulator.wdt_enabled:
+            self.wdt_toggle_btn.setText("Enabled")
+            self.wdt_toggle_btn.setStyleSheet("QPushButton { background-color: #28A745; color: white; }")
+            print("WDT enabled via GUI button")
+            # Reset the WDT timestamp when enabled
+            self.simulator.wdt_last_reset_time = self.simulator.runtime
+        else:
+            self.wdt_toggle_btn.setText("Disabled")
+            self.wdt_toggle_btn.setStyleSheet("QPushButton { background-color: #DC3545; color: white; }")
+            print("WDT disabled via GUI button")
+        
+        # Reset WDT counter when toggling
+        self.simulator.wdt_counter = 0
+    
+    def on_wdt_timeout(self):
+        """Display notification when WDT timeout occurs."""
+        # Use QMessageBox for a popup notification
+        QMessageBox.warning(self, "WDT Timeout", 
+                           "Watchdog Timer timeout detected (18ms)!\n\n"
+                           "The processor has been reset or woken from sleep.")
+        
+        # Update status bar as well
+        self.statusBar().showMessage("WDT timeout detected", 5000)
+    
     def setup_stack_panel(self):
         """Set up the stack display panel."""
         # Create horizontal layout for stack and I/O
@@ -924,6 +970,13 @@ class PicSimulatorGUI(QMainWindow):
         self.update_gui_runtime()
         self.update_gui_sfr_gpr()
         self.update_io_pins()
+        # Update WDT button state to match simulator
+        if hasattr(self, 'wdt_toggle_btn'):
+            self.wdt_toggle_btn.setText("Enabled" if self.simulator.wdt_enabled else "Disabled")
+            self.wdt_toggle_btn.setStyleSheet(
+                "QPushButton { background-color: #28A745; color: white; }" if self.simulator.wdt_enabled 
+                else "QPushButton { background-color: #DC3545; color: white; }"
+            )
     
     def update_gui_sfr_gpr(self):
         """Updates the SFR and GPR displays."""
@@ -993,7 +1046,7 @@ class PicSimulatorGUI(QMainWindow):
             # For PIC, instruction clock period = 4 * oscillator period
             # So, laufzeit_us = cycles * (4 / frequency_MHz)
             self.simulator.laufzeit_us = self.simulator.runtime_cycles * (4.0 / self.simulator.frequency_mhz)
-            self.laufzeit_label.setText(f"Laufzeit: {self.simulator.laufzeit_us:.2f} us")
+            self.laufzeit_label.setText(f"Laufzeit: {self.simulator.laufzeit_us:.2f} µs")
         else:
             self.laufzeit_label.setText("Laufzeit: N/A (Freq=0)")
     
@@ -1108,8 +1161,24 @@ class PicSimulatorGUI(QMainWindow):
     
     def step_instruction(self):
         """Executes a single instruction cycle."""
-        if self.simulator.running:
+        if self.simulator.running and not self.simulator.sleep_mode:
             return  # Don't step if running continuously
+        
+        # If in sleep mode, check if WDT wakes it up
+        if self.simulator.sleep_mode:
+            wdt_timeout = self.simulator.update_wdt(5)  # Check for WDT timeout
+            if wdt_timeout:
+                # WDT woke the processor
+                print("Stepping: Processor awakened from SLEEP by WDT timeout")
+                self.update_gui()
+                self.highlight_current_line()
+                return
+            else:
+                # Still sleeping, update runtime and return
+                self.simulator.runtime_cycles += 5
+                self.update_gui_runtime()
+                QMessageBox.information(self, "Sleep Mode", "Processor is in SLEEP mode. Step advances WDT but not execution.")
+                return
         
         try:
             self.step_mode = True
@@ -1133,6 +1202,7 @@ class PicSimulatorGUI(QMainWindow):
             
             # Simulate peripheral updates
             self.simulator.update_timer0(cycles_taken)
+            self.simulator.update_wdt(cycles_taken)  # Update WDT after instruction
             self.simulator.check_interrupts()
             
             # Force I/O pin update after every instruction
@@ -1195,11 +1265,31 @@ class PicSimulatorGUI(QMainWindow):
     @pyqtSlot()
     def execute_cycle(self):
         """Executes instruction cycles in batches for better UI responsiveness."""
-        if not self.simulator.running:
+        if not self.simulator.running and not self.simulator.sleep_mode:
             self.stop_program()
             return
         
         try:
+            # Check for WDT timeout in sleep mode
+            if self.simulator.sleep_mode:
+                # When sleeping, only update the WDT
+                wdt_timeout = self.simulator.update_wdt(10)  # Update WDT with equivalent of 10 cycles
+                
+                if wdt_timeout:
+                    # WDT timed out and woke the processor
+                    print("Processor awakened from SLEEP by WDT timeout")
+                    # Update GUI to show processor is now running
+                    self.update_gui()
+                    self.highlight_current_line()
+                    return
+                
+                # If still sleeping, continue sleep and return
+                if self.simulator.sleep_mode:
+                    # Update runtime counters while sleeping
+                    self.simulator.runtime_cycles += 10
+                    self.update_gui_runtime()
+                    return
+            
             # Execute a batch of instructions for better performance
             cycles_per_batch = 10
             for _ in range(cycles_per_batch):
@@ -1230,7 +1320,13 @@ class PicSimulatorGUI(QMainWindow):
                 
                 self.simulator.runtime_cycles += cycles_taken
                 self.simulator.update_timer0(cycles_taken)
+                self.simulator.update_wdt(cycles_taken)  # Update WDT after each instruction
                 self.simulator.check_interrupts()
+                
+                # Check if processor entered sleep mode
+                if self.simulator.sleep_mode:
+                    print("Processor entered SLEEP mode - execution paused until wakeup event")
+                    break
                 
                 # Check if we should exit the batch early (e.g., reached a breakpoint)
                 if not self.simulator.running:
@@ -1267,7 +1363,7 @@ class PicSimulatorGUI(QMainWindow):
                 self.freq_slider.blockSignals(True)
                 self.freq_slider.setValue(int(new_freq * 10))
                 self.freq_slider.blockSignals(False)
-                self.update_gui_runtime()
+                self.update_gui_runtime()  # Ensure runtime display is updated
             else:
                 QMessageBox.warning(self, "Invalid Frequency", "Frequency must be between 0.1 and 16.0 MHz.")
                 self.freq_edit.setText(str(self.simulator.frequency_mhz))  # Revert
@@ -1284,8 +1380,9 @@ class PicSimulatorGUI(QMainWindow):
             self.freq_slider.blockSignals(False)
         
         # Lose focus
-        self.code_edit.setFocus()
-    
+        if hasattr(self, 'code_edit'): # Check if code_edit exists
+            self.code_edit.setFocus()
+
     def update_frequency_from_slider(self, value):
         """Updates the simulator frequency from the slider."""
         new_freq = value / 10.0  # Convert from scaled value
@@ -1294,7 +1391,7 @@ class PicSimulatorGUI(QMainWindow):
             self.simulator.frequency_mhz = new_freq
             # Update text field to match
             self.freq_edit.setText(f"{new_freq:.1f}")
-            self.update_gui_runtime()
+            self.update_gui_runtime() # Ensure runtime display is updated
             print(f"Frequency updated to {self.simulator.frequency_mhz} MHz")
         else:
             # Should not happen with proper slider range
