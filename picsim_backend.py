@@ -780,8 +780,9 @@ class PicSimulator:
                 status = self.ram[SFR_STATUS_ADDR]
                 status |= (1 << STATUS_TO) | (1 << STATUS_PD)
                 self.ram[SFR_STATUS_ADDR] = status
-                # Reset WDT counter
+                # Reset WDT counter and elapsed time
                 self.wdt_counter = 0
+                self.wdt_elapsed_us = 0.0 # Ensure elapsed time is reset
                 # Reset prescaler if assigned to WDT
                 option_reg = self.get_ram(0x81)
                 psa = (option_reg >> 3) & 1  # PSA bit
@@ -1123,6 +1124,7 @@ class PicSimulator:
         self.portb_pins = 0
         self.portb_latch_on_read = 0
         self.wdt_counter = 0  # Reset WDT counter
+        self.wdt_elapsed_us = 0.0  # Ensure WDT elapsed time is reset
         self.sleep_mode = False  # Exit sleep mode on reset
 
         # Clear GPRs

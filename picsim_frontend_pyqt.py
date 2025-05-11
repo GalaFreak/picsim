@@ -585,7 +585,9 @@ class PicSimulatorGUI(QMainWindow):
             self.wdt_toggle_btn.setStyleSheet("QPushButton { background-color: #28A745; color: white; }")
             print("WDT enabled via GUI button")
             # Reset the WDT timestamp when enabled
-            self.simulator.wdt_last_reset_time = self.simulator.runtime
+            self.simulator.wdt_last_reset_time = self.simulator.laufzeit_us # Corrected attribute
+            self.simulator.wdt_elapsed_us = 0.0
+            self.simulator.wdt_counter = 0
         else:
             self.wdt_toggle_btn.setText("Disabled")
             self.wdt_toggle_btn.setStyleSheet("QPushButton { background-color: #DC3545; color: white; }")
