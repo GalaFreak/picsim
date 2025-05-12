@@ -437,7 +437,6 @@ class PicSimulator:
         # Update the latch value used for RB port change detection *before* potentially changing pins
         # Datasheet: "A read of PORTB reads the status of the pins, whereas a write to it will write to the port latch."
         # The interrupt flag RBIF is set when *any* enabled RB<7:4> input changes state.
-        # The change is detected by comparing the current pin value with the value latched on the *previous read* of PORTB.
         # Writing to PORTB updates the latch, which affects outputs immediately. It does NOT directly trigger the interrupt.
         # self.portb_latch_on_read = portb_latch # This was incorrect, portb_latch_on_read is updated on READ
 
@@ -590,40 +589,60 @@ class PicSimulator:
     def update_timer0(self, cycles=1):
         """Update Timer0 based on configuration and elapsed cycles."""
         # Get OPTION register (Bank 1, address 0x01)
-        option_reg = self.get_ram(0x81)
+        option_reg = self.get_ram(SFR_OPTION_REG_ADDR) # OPTION_REG is 0x81 (Bank 1 version of 0x01)
         
         # Check which clock source to use
-        t0cs = (option_reg >> 5) & 1  # T0CS bit (bit 5)
+        t0cs = (option_reg >> OPTION_T0CS) & 1  # T0CS bit (bit 5)
+
+        # If TMR0 increment is inhibited (due to a recent write to TMR0 by an instruction),
+        # the prescaler (if assigned to TMR0) still counts. TMR0 itself does not increment.
+        # The tmr0_inhibit_cycles is decremented elsewhere.
         
+        num_tmr0_ticks = 0
+
         if t0cs == 0:  # Internal clock mode (instruction cycle)
-            t0se = 0  # Not used in internal clock mode
-            psa = (option_reg >> 3) & 1  # PSA bit (bit 3)
-            ps = option_reg & 0x07  # PS2:PS0 bits (bits 0-2)
+            psa = (option_reg >> OPTION_PSA) & 1  # PSA bit (bit 3)
             
-            # Calculate prescaler value
             if psa == 0:  # Prescaler assigned to Timer0
+                ps = option_reg & 0x07  # PS2:PS0 bits (bits 0-2)
                 prescaler_values = {0: 2, 1: 4, 2: 8, 3: 16, 4: 32, 5: 64, 6: 128, 7: 256}
                 prescaler_value = prescaler_values[ps]
                 
-                # Update prescaler counter
                 self.prescaler_counter += cycles
                 if self.prescaler_counter >= prescaler_value:
-                    # Increment TMR0
-                    increments = self.prescaler_counter // prescaler_value
+                    num_tmr0_ticks = self.prescaler_counter // prescaler_value
                     self.prescaler_counter %= prescaler_value
-                    
-                    tmr0 = self.get_ram(0x01)  # TMR0 register
-                    tmr0 = (tmr0 + increments) & 0xFF
-                    self.set_ram(0x01, tmr0)
             else:  # Prescaler assigned to WDT
-                # In this case, Timer0 is incremented on every instruction cycle
-                tmr0 = self.get_ram(0x01)  # TMR0 register
-                tmr0 = (tmr0 + cycles) & 0xFF
-                self.set_ram(0x01, tmr0)
+                # In this case, Timer0 is incremented on every instruction cycle (if not inhibited)
+                num_tmr0_ticks = cycles
         else:  # External clock mode (RA4/T0CKI pin)
             # In external clock mode, Timer0 is handled when toggle_porta_pin is called
-            pass
-    
+            return
+
+        if num_tmr0_ticks > 0:
+            if self.tmr0_inhibit_cycles > 0:
+                # TMR0 increment is inhibited, but prescaler still counts (handled above)
+                return  # Do not increment TMR0 if inhibited
+
+            current_tmr0 = self.ram[SFR_TMR0_ADDR]
+            val_after_inc = current_tmr0
+            t0if_should_be_set = False
+
+            for _ in range(num_tmr0_ticks):
+                # Check for FF->00 transition *before* incrementing for this tick
+                if val_after_inc == 0xFF:
+                    t0if_should_be_set = True
+                val_after_inc = (val_after_inc + 1) & 0xFF
+            
+            # Update RAM directly (avoid calling self.set_ram which would trigger handle_tmr0_write)
+            if val_after_inc != current_tmr0:
+                self.ram[SFR_TMR0_ADDR] = val_after_inc
+
+            if t0if_should_be_set:
+                if not self.get_intcon_bit(INTCON_T0IF):
+                    self.set_intcon_bit(INTCON_T0IF)
+                    print(f"TMR0 Overflow: T0IF set. TMR0 is now 0x{self.ram[SFR_TMR0_ADDR]:02X}")
+
     def toggle_porta_pin(self, pin_index, value=None):
         """Toggle or set a specific pin on PORTA."""
         if pin_index < 0 or pin_index > 4:  # PORTA has 5 pins (RA0-RA4)
@@ -687,12 +706,22 @@ class PicSimulator:
                             self.prescaler_counter = 0
                             tmr0 = self.get_ram(0x01)
                             tmr0 = (tmr0 + 1) & 0xFF
-                            self.set_ram(0x01, tmr0)
+                            # Update TMR0 directly without triggering handle_tmr0_write
+                            self.ram[SFR_TMR0_ADDR] = tmr0
+                            # Check for overflow
+                            if tmr0 == 0xFF:
+                                self.set_intcon_bit(INTCON_T0IF)
+                                print(f"TMR0 Overflow from external clock: T0IF set. TMR0 is now 0x{tmr0:02X}")
                     else:  # No prescaler for Timer0
                         # Directly increment TMR0
                         tmr0 = self.get_ram(0x01)
                         tmr0 = (tmr0 + 1) & 0xFF
-                        self.set_ram(0x01, tmr0)
+                        # Update TMR0 directly
+                        self.ram[SFR_TMR0_ADDR] = tmr0
+                        # Check for overflow
+                        if tmr0 == 0xFF:
+                            self.set_intcon_bit(INTCON_T0IF)
+                            print(f"TMR0 Overflow from external clock: T0IF set. TMR0 is now 0x{tmr0:02X}")
 
     def check_interrupts(self):
         """Checks if any enabled interrupt has occurred and triggers ISR jump if GIE is set."""
@@ -964,7 +993,7 @@ class PicSimulator:
                 self.pc = self.pop_stack()
                 cycles = 2
                 pc_increment = False  # PC is set by pop
-            elif opcode == 0x0009:  # Todo keine Ahnung ob das so stimmt
+            elif opcode == 0b00000000001001:  # Todo keine Ahnung ob das so stimmt
                 print(f"PC=0x{self.pc:03X}: RETFIE")
                 self.pc = self.pop_stack()
                 self.set_intcon_bit(INTCON_GIE)  # Enable global interrupts
