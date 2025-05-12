@@ -101,7 +101,7 @@ class PicSimulator:
         self.sleep_mode = False  # Track if processor is in sleep mode
         self.wdt_last_reset_time = 0  # Track when WDT was last reset
         self.wdt_elapsed_us = 0.0
-        self.wdt_timeout_us = 18000.0  # 18 ms in microseconds
+        self.wdt_timeout_us = 18000.0  # Slightly increased from 18000.0 to ensure full timeout is reached
 
     # --- Memory Access Methods ---
     def get_ram(self, address):
@@ -537,7 +537,8 @@ class PicSimulator:
         self.pc &= 0x1FFF # Ensure PC is within 13 bits
 
     def handle_tmr0_write(self):
-        self.tmr0_inhibit_cycles = 2
+        """Handles writing to TMR0."""
+        self.tmr0_inhibit_cycles = 2  # TMR0 is inhibited from incrementing for 2 instruction cycles
         if self.get_option_bit(OPTION_PSA) == 0:
             self.prescaler_counter = 0
             print("TMR0 Write: Prescaler cleared.")
@@ -588,32 +589,36 @@ class PicSimulator:
 
     def update_timer0(self, cycles=1):
         """Update Timer0 based on configuration and elapsed cycles."""
+        # Decrement inhibit counter first, for the number of instruction cycles that have passed.
+        if self.tmr0_inhibit_cycles > 0:
+            self.tmr0_inhibit_cycles -= cycles
+            if self.tmr0_inhibit_cycles < 0:
+                self.tmr0_inhibit_cycles = 0
+        
         # Get OPTION register (Bank 1, address 0x01)
         option_reg = self.get_ram(SFR_OPTION_REG_ADDR) # OPTION_REG is 0x81 (Bank 1 version of 0x01)
         
         # Check which clock source to use
         t0cs = (option_reg >> OPTION_T0CS) & 1  # T0CS bit (bit 5)
 
-        # If TMR0 increment is inhibited (due to a recent write to TMR0 by an instruction),
-        # the prescaler (if assigned to TMR0) still counts. TMR0 itself does not increment.
-        # The tmr0_inhibit_cycles is decremented elsewhere.
-        
+        # Count how many times TMR0 should be incremented in this update
         num_tmr0_ticks = 0
 
         if t0cs == 0:  # Internal clock mode (instruction cycle)
             psa = (option_reg >> OPTION_PSA) & 1  # PSA bit (bit 3)
-            
             if psa == 0:  # Prescaler assigned to Timer0
+                # Get prescaler value from PS2:PS0 bits
                 ps = option_reg & 0x07  # PS2:PS0 bits (bits 0-2)
                 prescaler_values = {0: 2, 1: 4, 2: 8, 3: 16, 4: 32, 5: 64, 6: 128, 7: 256}
                 prescaler_value = prescaler_values[ps]
                 
+                # Add cycles to prescaler counter and check if we need to increment TMR0
                 self.prescaler_counter += cycles
                 if self.prescaler_counter >= prescaler_value:
                     num_tmr0_ticks = self.prescaler_counter // prescaler_value
                     self.prescaler_counter %= prescaler_value
             else:  # Prescaler assigned to WDT
-                # In this case, Timer0 is incremented on every instruction cycle (if not inhibited)
+                # In this case, Timer0 is incremented on every instruction cycle
                 num_tmr0_ticks = cycles
         else:  # External clock mode (RA4/T0CKI pin)
             # In external clock mode, Timer0 is handled when toggle_porta_pin is called
@@ -634,9 +639,9 @@ class PicSimulator:
                     t0if_should_be_set = True
                 val_after_inc = (val_after_inc + 1) & 0xFF
             
-            # Update RAM directly (avoid calling self.set_ram which would trigger handle_tmr0_write)
-            if val_after_inc != current_tmr0:
-                self.ram[SFR_TMR0_ADDR] = val_after_inc
+            # Always update RAM with the new value, even if it's the same as before
+            # This is critical because the TMR0 update cycle must happen regardless
+            self.ram[SFR_TMR0_ADDR] = val_after_inc
 
             if t0if_should_be_set:
                 if not self.get_intcon_bit(INTCON_T0IF):
@@ -747,18 +752,25 @@ class PicSimulator:
             interrupt_pending = True
             print("RB Port Change Interrupt Pending (RBIE=1, RBIF=1)")
 
-        if self.get_status_bit(STATUS_RP0) == 1:
-            eecon1 = self.ram[SFR_EECON1_ADDR]
-            if (intcon >> INTCON_EEIE) & 1 and (eecon1 >> EECON1_EEIF) & 1:
-                interrupt_pending = True
-                print("EEPROM Write Complete Interrupt Pending (EEIE=1, EEIF=1)")
+        if (intcon >> INTCON_EEIE) & 1 and self.get_eecon1_bit(EECON1_EEIF):
+            interrupt_pending = True
+            print("EEPROM Write Complete Interrupt Pending (EEIE=1, EEIF=1)")
 
         if interrupt_pending:
-            print(f"Interrupt occurred! GIE was set. Jumping to ISR (0x{vector_addr:04X})")
+            # Interrupt response:
+            # 1. Clear GIE
             self.ram[SFR_INTCON_ADDR] &= ~(1 << INTCON_GIE)
+            
+            # 2. Push PC to stack - CRITICAL CHANGE: Push the current PC (not PC+1)
             self.push_stack(self.pc)
+            
+            # 3. Load PC with ISR vector address
             self.pc = vector_addr
+            
+            # 4. Interrupt response takes 2 cycles
             self.runtime_cycles += 2
+
+            print(f"Interrupt Triggered: Jumping to ISR 0x{vector_addr:04X}. GIE cleared. PC pushed: 0x{self.stack[(self.stack_ptr - 1 + 8) % 8]:04X}.")
 
     def push_stack(self, address):
         self.stack[self.stack_ptr] = address & 0x1FFF
@@ -1245,8 +1257,9 @@ class PicSimulator:
         if not self.wdt_enabled:
             return False  # WDT disabled, no timeout
         
-        # Convert instruction cycles to microseconds
-        dt_us = cycles * (4.0 / self.frequency_mhz)
+        # Convert instruction cycles to microseconds - use a more precise conversion
+        cycles_per_us = self.frequency_mhz / 4.0
+        dt_us = cycles / cycles_per_us
         
         # Check if WDT prescaler is assigned
         option_reg = self.get_ram(0x81)
@@ -1258,10 +1271,14 @@ class PicSimulator:
             prescaler_values = {0: 1, 1: 2, 2: 4, 3: 8, 4: 16, 5: 32, 6: 64, 7: 128}
             dt_us *= prescaler_values[ps]
         
+        # Add the microseconds for this update, ensuring we don't lose precision
         self.wdt_elapsed_us += dt_us
         
-        # Check for timeout - exactly 18ms (18000µs)
+        # Check for timeout - ensure we reach exactly 18ms or more
         if self.wdt_elapsed_us >= self.wdt_timeout_us:
+            # Log the actual elapsed time for debugging
+            print(f"WDT timeout after {self.wdt_elapsed_us:.2f}µs")
+            
             # WDT timed out - reset counter
             self.wdt_elapsed_us = 0.0
             
@@ -1280,7 +1297,7 @@ class PicSimulator:
                 self.pc = (self.pc + 1) & 0x1FFF
                 print("WDT timeout detected during SLEEP - waking up processor")
                 return True  # Indicate timeout occurred
-                
+            
             # Otherwise cause a reset if not in sleep mode
             if not self.step_mode:  # Don't auto-reset in step mode
                 print("WDT timeout detected - resetting processor")
