@@ -1005,7 +1005,7 @@ class PicSimulator:
                 self.pc = self.pop_stack()
                 cycles = 2
                 pc_increment = False  # PC is set by pop
-            elif opcode == 0b00000000001001:  # Todo keine Ahnung ob das so stimmt
+            elif opcode == 0b00000000001001:
                 print(f"PC=0x{self.pc:03X}: RETFIE")
                 self.pc = self.pop_stack()
                 self.set_intcon_bit(INTCON_GIE)  # Enable global interrupts
