@@ -687,7 +687,7 @@ class PicSimulator:
             
             # Check if Timer0 is in external clock mode
             t0cs = (option_reg >> 5) & 1
-            if t0cs == 1:  # External clock mode
+            if t0cs == 1:  # External clock
                 # Check T0SE bit to determine triggering edge
                 t0se = (option_reg >> 4) & 1  # T0SE bit (bit 4)
                 
@@ -1074,24 +1074,32 @@ class PicSimulator:
                 self.pc = (self.pc + 2) & 0x1FFF
                 cycles = 2
 
-        # CALL and GOTO (10 xxxx ....)
+        # CALL and GOTO (10 xxxx .F...)
         elif (opcode >> 11) == 0b100:  # CALL k (10 0kkk kkkk kkkk)
             print(f"PC=0x{self.pc:03X}: CALL 0x{literal_k11:03X}")
-            self.push_stack(self.pc + 1)  # Push return address
-            pclath_high = self.ram[SFR_PCLATH_ADDR]
-            # CALL uses PCLATH<4:3> for PC<12:11>
-            target_pc = ((pclath_high & 0b00011000) << (8-3)) | literal_k11
-            self.pc = target_pc & 0x1FFF  # Ensure 13-bit PC
+            # Push PC+1 to stack
+            self.push_stack(self.pc + 1)
+            
+            # Calculate target address - PCLATH<4:3> provide PC<12:11>
+            pclath_val = self.ram[SFR_PCLATH_ADDR]
+            upper_bits = (pclath_val >> 3) & 0x03  # Extract PCLATH<4:3>
+            target_pc = (upper_bits << 11) | literal_k11
+            
+            self.pc = target_pc
             cycles = 2
-            pc_increment = False  # PC is set by instruction
+            pc_increment = False
+
         elif (opcode >> 11) == 0b101:  # GOTO k (10 1kkk kkkk kkkk)
             print(f"PC=0x{self.pc:03X}: GOTO 0x{literal_k11:03X}")
-            pclath_high = self.ram[SFR_PCLATH_ADDR]
-            # GOTO uses PCLATH<4:3> for PC<12:11>
-            target_pc = ((pclath_high & 0b00011000) << (8-3)) | literal_k11
-            self.pc = target_pc & 0x1FFF  # Ensure 13-bit PC
+            
+            # Calculate target address - PCLATH<4:3> provide PC<12:11>
+            pclath_val = self.ram[SFR_PCLATH_ADDR]
+            upper_bits = (pclath_val >> 3) & 0x03  # Extract PCLATH<4:3>
+            target_pc = (upper_bits << 11) | literal_k11
+            
+            self.pc = target_pc
             cycles = 2
-            pc_increment = False  # PC is set by instruction
+            pc_increment = False
 
         # Literal and control operations (11 xxxx ....)
         elif (opcode >> 10) == 0b1100:  # MOVLW k (11 00xx kkkk kkkk)
