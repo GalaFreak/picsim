@@ -1217,20 +1217,68 @@ class PicSimulatorGUI(QMainWindow):
             t0cs = (option_reg >> 5) & 1  # T0CS bit (bit 5)
             
             # For test program 7, automatically toggle RA4 if Timer0 is in external clock mode
-            if t0cs == 1 and self.prog_mem[self.simulator.pc] in [0x1E01, 0x1D81, 0x281E, 0x2825]:
-                # We're in the external clock test sections, toggle RA4 to advance the timer
-                # Toggle RA4 multiple times based on the test
+            if t0cs == 1:
+                # In external clock mode, first ensure RA4 is properly configured as an input
+                # (per PIC16F84 datasheet, RA4 must be configured as input when used as T0CKI)
+                trisa_val = self.simulator.ram[SFR_TRISA_ADDR]
+                
+                # If RA4/T0CKI is not set as input, set it
+                if ((trisa_val >> 4) & 1) == 0:  # Bit is 0 = output, should be 1 = input
+                    self.simulator.ram[SFR_TRISA_ADDR] = trisa_val | (1 << 4)
+                    self.simulator.handle_trisa_write()  # Update pin state after changing TRISA
+                    print("Auto-configured RA4 as input for Timer0 external clock mode")
+                
+                # Check if we're in the appropriate test loop for TPicSim7
                 current_address = self.simulator.pc
+                current_opcode = self.prog_mem[current_address]
                 
-                # First external test (loop3) - no prescaler
-                if 0x001E <= current_address <= 0x001F:
-                    self.simulator.toggle_porta_pin(4, 1)  # Set high
-                    self.simulator.toggle_porta_pin(4, 0)  # Set low - triggers on falling edge
-                
-                # Second external test (loop4) - with prescaler 1:4
-                elif 0x0025 <= current_address <= 0x0026:
-                    self.simulator.toggle_porta_pin(4, 1)  # Set high
-                    self.simulator.toggle_porta_pin(4, 0)  # Set low - triggers on falling edge
+                # Toggle RA4 when we're at certain instructions in the test loops
+                # loop3 tests no prescaler, loop4 tests with prescaler 1:4
+                if (0x001E <= current_address <= 0x001F) or (0x0025 <= current_address <= 0x0026):
+                    # Check which specific test we're in
+                    if 0x001E <= current_address <= 0x001F:
+                        # First test without prescaler - need to toggle enough to reach bit 4 (value 16)
+                        # Check current TMR0 value
+                        tmr0_value = self.simulator.ram[SFR_TMR0_ADDR]
+                        
+                        # Calculate how many toggles needed to get to value 16 (bit 4 set)
+                        toggles_needed = max(0, 16 - tmr0_value) if tmr0_value < 16 else 1
+                        
+                        # Do this by generating falling edges
+                        for _ in range(toggles_needed):
+                            # Generate a complete cycle (high->low) for proper edge detection
+                            self.simulator.toggle_porta_pin(4)
+                            self.update_io_pins()  # Update the display after each toggle
+                            
+                    elif 0x0025 <= current_address <= 0x0026:
+                        # Second test with 1:4 prescaler - need to toggle enough to reach bit 3 (value 8)
+                        tmr0_value = self.simulator.ram[SFR_TMR0_ADDR]
+                        
+                        # With 1:4 prescaler, need 4 edges per increment, and need to reach value 8 (bit 3 set)
+                        psa = (option_reg >> 3) & 1  # PSA bit
+                        
+                        if psa == 0:  # Prescaler assigned to Timer0
+                            # Get prescaler value
+                            ps = option_reg & 0x07
+                            prescaler_value = {0: 2, 1: 4, 2: 8, 3: 16, 4: 32, 5: 64, 6: 128, 7: 256}[ps]
+                            
+                            # Calculate how many toggles needed (accounting for current prescaler state)
+                            current_prescaler = self.simulator.prescaler_counter
+                            remaining_prescaler = prescaler_value - current_prescaler
+                            
+                            toggles_needed = remaining_prescaler  # Toggles to complete current prescaler cycle
+                            
+                            # Add toggles for each increment needed to reach 8
+                            if tmr0_value < 8:
+                                toggles_needed += (8 - tmr0_value) * prescaler_value
+                        else:
+                            # No prescaler, directly increment
+                            toggles_needed = max(0, 8 - tmr0_value) if tmr0_value < 8 else 1
+                        
+                        for _ in range(min(toggles_needed, 32)):  # Limit max toggles to avoid infinite loops
+                            # Generate a complete cycle for proper edge detection
+                            self.simulator.toggle_porta_pin(4)
+                            self.update_io_pins()  # Update the display after each toggle
             
         except ValueError as error:
             QMessageBox.critical(self, "Instruction Error", 

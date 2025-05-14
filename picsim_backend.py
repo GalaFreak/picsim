@@ -1222,9 +1222,55 @@ class PicSimulator:
     def toggle_porta_pin(self, pin_index):
         """Toggles the simulated input level of a PORTA pin. Returns True if successful."""
         if self.get_tris_a_bit(pin_index):  # Only toggle if pin is configured as input
+            # Store previous value for edge detection
+            prev_level = (self.porta_pins >> pin_index) & 1
+            
+            # Toggle the pin
             self.porta_pins ^= (1 << pin_index)
-            pin_level = (self.porta_pins >> pin_index) & 1
-            print(f"Toggled RA{pin_index} input stimulus to {pin_level}")
+            new_level = (self.porta_pins >> pin_index) & 1
+            
+            print(f"Toggled RA{pin_index} input stimulus to {new_level}")
+            
+            # If this is RA4 in Timer0 external clock mode, handle timer updates
+            if pin_index == 4:
+                option_reg = self.ram[SFR_OPTION_REG_ADDR]
+                t0cs = (option_reg >> OPTION_T0CS) & 1
+                
+                if t0cs == 1:  # Timer0 in external clock mode
+                    # Check if the correct edge occurred
+                    t0se = (option_reg >> OPTION_T0SE) & 1
+                    
+                    edge_triggered = False
+                    if t0se == 1:  # Falling edge (1->0)
+                        edge_triggered = (prev_level == 1 and new_level == 0)
+                    else:  # Rising edge (0->1)
+                        edge_triggered = (prev_level == 0 and new_level == 1)
+                    
+                    if edge_triggered:
+                        # Check if prescaler is used for Timer0
+                        psa = (option_reg >> OPTION_PSA) & 1
+                        
+                        if psa == 0:  # Prescaler assigned to Timer0
+                            # Get prescaler value
+                            ps = option_reg & 0x07
+                            prescaler_values = {0: 2, 1: 4, 2: 8, 3: 16, 4: 32, 5: 64, 6: 128, 7: 256}
+                            prescaler_value = prescaler_values[ps]
+                            
+                            # Increment prescaler counter
+                            self.prescaler_counter += 1
+                            
+                            # Check if it's time to increment TMR0
+                            if self.prescaler_counter >= prescaler_value:
+                                self.prescaler_counter = 0
+                                if self.tmr0_inhibit_cycles <= 0:
+                                    self._increment_tmr0(1)
+                                    print(f"TMR0 incremented via RA4 with prescaler {prescaler_value}")
+                        else:  # No prescaler for Timer0
+                            # Directly increment TMR0
+                            if self.tmr0_inhibit_cycles <= 0:
+                                self._increment_tmr0(1)
+                                print(f"TMR0 incremented directly via RA4")
+            
             return True
         return False
 
